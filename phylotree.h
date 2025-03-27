@@ -439,6 +439,14 @@ public:
      */
     virtual void computePartialParsimony(PhyloNeighbor *dad_branch, PhyloNode *dad);
 
+    /**
+            compute partial parsimony score of the subtree rooted at dad from startPtn to endPtn
+            @param dad_branch the branch leading to the subtree
+            @param dad its dad, used to direct the tranversal
+            @param startPtn start pattern
+            @param endPtn end pattern
+     */
+    void computePartialParsimonyMultiThreads(PhyloNeighbor *dad_branch, PhyloNode *dad, int startPtn, int endPtn);
 
     /**
             compute tree parsimony score on a branch
@@ -449,7 +457,14 @@ public:
      */
     virtual int computeParsimonyBranch(PhyloNeighbor *dad_branch, PhyloNode *dad, int *branch_subst = NULL);
 
-    void computeParsimonyMultiThread(vector<pair<PhyloNeighbor*, PhyloNode*> > &branch_list);
+    /**
+            compute tree parsimony score on a branch
+            @param dad_branch the branch leading to the subtree
+            @param dad its dad, used to direct the tranversal
+            @param branch_subst (OUT) if not NULL, the number of substitutions on this branch
+            @return parsimony score of the tree
+     */
+    int computeParsimonyBranchMultiThreads(PhyloNeighbor *dad_branch, PhyloNode *dad, int *branch_subst = NULL);
 
     vector<pair<PhyloNeighbor*, PhyloNode*> > initializeComputeParsimony(PhyloNeighbor *dad_branch, PhyloNode *dad);
 

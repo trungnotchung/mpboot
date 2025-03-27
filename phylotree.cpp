@@ -935,6 +935,75 @@ void PhyloTree::computePartialParsimony(PhyloNeighbor *dad_branch, PhyloNode *da
     delete[] bits_entry;
 }
 
+void PhyloTree::computePartialParsimonyMultiThreads(PhyloNeighbor *dad_branch, PhyloNode *dad, int startPtn, int endPtn) {
+    // don't recompute the parsimony
+    if (dad_branch->partial_lh_computed & 2)
+        return;
+    Node *node = dad_branch->node;
+    //assert(node->degree() <= 3);
+    int ptn;
+    int nstates = aln->num_states;
+    int pars_size = getBitsBlockSize();
+    int entry_size = getBitsEntrySize();
+    int nptn = aln->size();
+    int ptn_pars_start_id = pars_size - nptn - 1;
+
+    assert(dad_branch->partial_pars);
+    dad_branch->partial_lh_computed |= 2;
+
+    if (nstates == 4 && aln->seq_type == SEQ_DNA && (node->isLeaf() || node->degree() == 3)) {
+    	// ULTRAFAST VERSION FOR DNA, assuming that UINT is 32-bit integer
+        if (node->isLeaf() && dad) {
+            // external node
+            for (ptn = 0; ptn < aln->size(); ptn+=8) {
+            	UINT states = 0;
+            	int maxi = aln->size() - ptn;
+            	if(maxi > 8) maxi = 8;
+            	for (int i = 0; i< maxi; i++) {
+            		UINT bit_state = dna_state_map[(aln->at(ptn+i))[node->id]];
+            		states |= (bit_state << (i*4));
+            		dad_branch->partial_pars[ptn_pars_start_id + ptn + i] = 0;
+            	}
+            	dad_branch->partial_pars[ptn/8] = states;
+            }
+            dad_branch->partial_pars[pars_size - 1] = 0; // set subtree score = 0
+        } else {
+            // internal node
+        	memset(dad_branch->partial_pars + ptn_pars_start_id, 0, nptn * sizeof(int));
+        	UINT *left = NULL, *right = NULL;
+        	int pars_steps = 0;
+            FOR_NEIGHBOR_IT(node, dad, it)if ((*it)->node->name != ROOT_NAME) {
+                computePartialParsimony((PhyloNeighbor*) (*it), (PhyloNode*) node);
+                if (!left)
+                	left = ((PhyloNeighbor*) (*it))->partial_pars;
+                else
+                	right = ((PhyloNeighbor*) (*it))->partial_pars;
+                pars_steps += ((PhyloNeighbor*) (*it))->partial_pars[pars_size-1];
+                for(int p = 0; p < nptn; p++)
+                	dad_branch->partial_pars[ptn_pars_start_id + p] += ((PhyloNeighbor*) (*it))->partial_pars[ptn_pars_start_id + p];
+            }
+            for (ptn = 0; ptn < aln->size(); ptn+=8) {
+            	UINT states_left = left[ptn/8];
+            	UINT states_right = right[ptn/8];
+            	UINT states_dad = 0;
+            	int maxi = aln->size() - ptn;
+            	if(maxi > 8) maxi = 8;
+            	for (int i = 0; i< maxi; i++) {
+            		UINT state_left = (states_left >> (i*4)) & 15;
+            		UINT state_right = (states_right >> (i*4)) & 15;
+            		UINT state_both = state_left | (state_right << 4);
+            		states_dad |= dna_fitch_result[state_both] << (i*4);
+            		pars_steps += dna_fitch_step[state_both] * aln->at(ptn+i).frequency;
+            		dad_branch->partial_pars[ptn_pars_start_id + ptn + i] += dna_fitch_step[state_both];
+            	}
+            	dad_branch->partial_pars[ptn/8] = states_dad;
+            }
+            dad_branch->partial_pars[pars_size - 1] = pars_steps;
+        }
+        return;
+    } // END OF DNA VERSION
+}
+
 vector<pair<PhyloNeighbor*, PhyloNode*> > PhyloTree::initializeComputeParsimony(PhyloNeighbor *dad_branch, PhyloNode *dad)
 {
     PhyloNode *node = (PhyloNode*) dad_branch->node;
@@ -966,7 +1035,28 @@ vector<pair<PhyloNeighbor*, PhyloNode*> > PhyloTree::initializeComputeParsimony(
     return result;
 }
 
-void PhyloTree::computeParsimonyMultiThread(vector<pair<PhyloNeighbor*, PhyloNode*> > &branch_list) {
+int PhyloTree::computeParsimonyBranchMultiThreads(PhyloNeighbor *dad_branch, PhyloNode *dad, int *branch_subst) {
+    PhyloNode *node = (PhyloNode*) dad_branch->node;
+    PhyloNeighbor *node_branch = (PhyloNeighbor*) node->findNeighbor(dad);
+    assert(node_branch);
+    if (!central_partial_pars)
+        initializeAllPartialPars();
+    // swap node and dad if dad is a leaf
+    if (node->isLeaf()) {
+        PhyloNode *tmp_node = dad;
+        dad = node;
+        node = tmp_node;
+        PhyloNeighbor *tmp_nei = dad_branch;
+        dad_branch = node_branch;
+        node_branch = tmp_nei;
+        //cout << "swapped\n";
+    }
+
+    int nptn = aln->size();
+    if(!_pattern_pars) _pattern_pars = aligned_alloc<BootValTypePars>(nptn+VCSIZE_USHORT);
+    memset(_pattern_pars, 0, sizeof(BootValTypePars) * (nptn+VCSIZE_USHORT));
+
+    vector<pair<PhyloNeighbor*, PhyloNode*> > branch_list = initializeComputeParsimony(dad_branch, dad);
     while (branch_list.size()) {
         vector<thread> threads;
         vector<PhyloNode*> save_dads;
@@ -979,7 +1069,7 @@ void PhyloTree::computeParsimonyMultiThread(vector<pair<PhyloNeighbor*, PhyloNod
             assert(node->dependency >= 0);
             if (node->dependency == 0) {
                 branch_list.pop_back();
-                threads.push_back(thread(&PhyloTree::computePartialParsimony, this, dad_branch, dad));
+                threads.push_back(thread(&PhyloTree::computePartialParsimonyMultiThreads, this, dad_branch, dad, 0, 0));
                 save_dads.push_back(dad);
             } else {
                 break;
@@ -991,6 +1081,38 @@ void PhyloTree::computeParsimonyMultiThread(vector<pair<PhyloNeighbor*, PhyloNod
             dad->dependency--;
         }
     }
+
+    int pars_size = getBitsBlockSize();
+    int entry_size = getBitsEntrySize();
+    int ptn_pars_start_id = pars_size - nptn - 1;
+    //int nstates = aln->num_states;
+    int i, ptn;
+    int tree_pars = 0;
+
+    if (aln->num_states == 4 && aln->seq_type == SEQ_DNA) {
+    	// ULTRAFAST VERSION FOR DNA
+        for (ptn = 0; ptn < aln->size(); ptn+=8) {
+        	UINT states_left = node_branch->partial_pars[ptn/8];
+        	UINT states_right = dad_branch->partial_pars[ptn/8];
+        	UINT states_dad = 0;
+        	int maxi = aln->size() - ptn;
+        	if(maxi > 8) maxi = 8;
+			for (i = 0; i< maxi; i++) {
+				UINT state_left = (states_left >> (i*4)) & 15;
+				UINT state_right = (states_right >> (i*4)) & 15;
+				UINT state_both = state_left | (state_right << 4);
+				states_dad |= dna_fitch_result[state_both] << (i*4);
+				tree_pars += dna_fitch_step[state_both] * aln->at(ptn+i).frequency;
+				_pattern_pars[ptn + i] = node_branch->partial_pars[ptn_pars_start_id + ptn + i] +
+					dad_branch->partial_pars[ptn_pars_start_id + ptn + i] + dna_fitch_step[state_both];
+			}
+        }
+    }
+    if (branch_subst)
+        *branch_subst = tree_pars;
+
+    tree_pars += node_branch->partial_pars[pars_size - 1] + dad_branch->partial_pars[pars_size - 1];
+    return tree_pars;
 }
 
 int PhyloTree::computeParsimonyBranch(PhyloNeighbor *dad_branch, PhyloNode *dad, int *branch_subst) {
@@ -1014,8 +1136,11 @@ int PhyloTree::computeParsimonyBranch(PhyloNeighbor *dad_branch, PhyloNode *dad,
     if(!_pattern_pars) _pattern_pars = aligned_alloc<BootValTypePars>(nptn+VCSIZE_USHORT);
     memset(_pattern_pars, 0, sizeof(BootValTypePars) * (nptn+VCSIZE_USHORT));
 
-    vector<pair<PhyloNeighbor*, PhyloNode*> > bfs = initializeComputeParsimony(dad_branch, dad);
-    computeParsimonyMultiThread(bfs);
+    if ((dad_branch->partial_lh_computed & 2) == 0)
+        computePartialParsimony(dad_branch, dad);
+    if ((node_branch->partial_lh_computed & 2) == 0)
+        computePartialParsimony(node_branch, node);
+    // now combine likelihood at the branch
 
     int pars_size = getBitsBlockSize();
     int entry_size = getBitsEntrySize();
@@ -1112,7 +1237,7 @@ int PhyloTree::computeParsimony() {
     int nptn = aln->size();
     if(_pattern_pars == NULL) _pattern_pars = aligned_alloc<BootValTypePars>(nptn + VCSIZE_USHORT);
 
-    return computeParsimonyBranch((PhyloNeighbor*) root->neighbors[0], (PhyloNode*) root);
+    return computeParsimonyBranchMultiThreads((PhyloNeighbor*) root->neighbors[0], (PhyloNode*) root);
 }
 
 void PhyloTree::printParsimonyStates(PhyloNeighbor *dad_branch, PhyloNode *dad) {
