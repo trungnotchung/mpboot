@@ -466,7 +466,19 @@ public:
      */
     int computeParsimonyBranchMultiThreads(PhyloNeighbor *dad_branch, PhyloNode *dad, int *branch_subst = NULL);
 
-    vector<pair<PhyloNeighbor*, PhyloNode*> > initializeComputeParsimony(PhyloNeighbor *dad_branch, PhyloNode *dad);
+    /**
+        initialize information for computing parsimony score with multi-threads
+        @param dad_branch the branch leading to the subtree
+        @param dad its dad, used to direct the tranversal
+        @return a vector of pairs of (branch, node)
+     */
+    vector<pair<PhyloNeighbor*, PhyloNode*> > initializeComputeParsimonyMultiThreads(PhyloNeighbor *dad_branch, PhyloNode *dad);
+
+    /**
+        finalize compute parsimony score with multi-threads
+        @param topo_sorted_branches a vector of pairs of (branch, node)
+     */
+    void finalizeComputeParsimonyMultiThreads(vector<pair<PhyloNeighbor*, PhyloNode*> > topo_sorted_branches);
 
     void printParsimonyStates(PhyloNeighbor *dad_branch = NULL, PhyloNode *dad = NULL);
 

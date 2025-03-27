@@ -1004,7 +1004,7 @@ void PhyloTree::computePartialParsimonyMultiThreads(PhyloNeighbor *dad_branch, P
     } // END OF DNA VERSION
 }
 
-vector<pair<PhyloNeighbor*, PhyloNode*> > PhyloTree::initializeComputeParsimony(PhyloNeighbor *dad_branch, PhyloNode *dad)
+vector<pair<PhyloNeighbor*, PhyloNode*> > PhyloTree::initializeComputeParsimonyMultiThreads(PhyloNeighbor *dad_branch, PhyloNode *dad)
 {
     PhyloNode *node = (PhyloNode*) dad_branch->node;
     PhyloNeighbor *node_branch = (PhyloNeighbor*) node->findNeighbor(dad);
@@ -1035,6 +1035,10 @@ vector<pair<PhyloNeighbor*, PhyloNode*> > PhyloTree::initializeComputeParsimony(
     return result;
 }
 
+void PhyloTree::finalizeComputeParsimonyMultiThreads(vector<pair<PhyloNeighbor*, PhyloNode*> > topo_sorted_branches) {
+
+}
+
 int PhyloTree::computeParsimonyBranchMultiThreads(PhyloNeighbor *dad_branch, PhyloNode *dad, int *branch_subst) {
     PhyloNode *node = (PhyloNode*) dad_branch->node;
     PhyloNeighbor *node_branch = (PhyloNeighbor*) node->findNeighbor(dad);
@@ -1056,19 +1060,19 @@ int PhyloTree::computeParsimonyBranchMultiThreads(PhyloNeighbor *dad_branch, Phy
     if(!_pattern_pars) _pattern_pars = aligned_alloc<BootValTypePars>(nptn+VCSIZE_USHORT);
     memset(_pattern_pars, 0, sizeof(BootValTypePars) * (nptn+VCSIZE_USHORT));
 
-    vector<pair<PhyloNeighbor*, PhyloNode*> > branch_list = initializeComputeParsimony(dad_branch, dad);
-    while (branch_list.size()) {
+    vector<pair<PhyloNeighbor*, PhyloNode*> > topo_sorted_branches = initializeComputeParsimonyMultiThreads(dad_branch, dad);
+    while (topo_sorted_branches.size()) {
         vector<thread> threads;
         vector<PhyloNode*> save_dads;
         for (int i = 0; i < params->pp_thread; ++i) {
-            if (branch_list.empty())
+            if (topo_sorted_branches.empty())
                 break;
-            PhyloNeighbor *dad_branch = branch_list.back().first;
-            PhyloNode *dad = branch_list.back().second;
+            PhyloNeighbor *dad_branch = topo_sorted_branches.back().first;
+            PhyloNode *dad = topo_sorted_branches.back().second;
             PhyloNode *node = (PhyloNode*) dad_branch->node;
             assert(node->dependency >= 0);
             if (node->dependency == 0) {
-                branch_list.pop_back();
+                topo_sorted_branches.pop_back();
                 threads.push_back(thread(&PhyloTree::computePartialParsimonyMultiThreads, this, dad_branch, dad, 0, 0));
                 save_dads.push_back(dad);
             } else {
