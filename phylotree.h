@@ -451,7 +451,7 @@ public:
 
     void computeParsimonyMultiThread(vector<pair<PhyloNeighbor*, PhyloNode*> > &branch_list);
 
-    vector<pair<PhyloNeighbor*, PhyloNode*> > breadthFirstExpansion(PhyloNeighbor *dad_branch, PhyloNode *dad);
+    vector<pair<PhyloNeighbor*, PhyloNode*> > initializeComputeParsimony(PhyloNeighbor *dad_branch, PhyloNode *dad);
 
     void printParsimonyStates(PhyloNeighbor *dad_branch = NULL, PhyloNode *dad = NULL);
 

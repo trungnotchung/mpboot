@@ -935,7 +935,7 @@ void PhyloTree::computePartialParsimony(PhyloNeighbor *dad_branch, PhyloNode *da
     delete[] bits_entry;
 }
 
-vector<pair<PhyloNeighbor*, PhyloNode*> > PhyloTree::breadthFirstExpansion(PhyloNeighbor *dad_branch, PhyloNode *dad)
+vector<pair<PhyloNeighbor*, PhyloNode*> > PhyloTree::initializeComputeParsimony(PhyloNeighbor *dad_branch, PhyloNode *dad)
 {
     PhyloNode *node = (PhyloNode*) dad_branch->node;
     PhyloNeighbor *node_branch = (PhyloNeighbor*) node->findNeighbor(dad);
@@ -1014,13 +1014,8 @@ int PhyloTree::computeParsimonyBranch(PhyloNeighbor *dad_branch, PhyloNode *dad,
     if(!_pattern_pars) _pattern_pars = aligned_alloc<BootValTypePars>(nptn+VCSIZE_USHORT);
     memset(_pattern_pars, 0, sizeof(BootValTypePars) * (nptn+VCSIZE_USHORT));
 
-    vector<pair<PhyloNeighbor*, PhyloNode*> > bfs = breadthFirstExpansion(dad_branch, dad);
+    vector<pair<PhyloNeighbor*, PhyloNode*> > bfs = initializeComputeParsimony(dad_branch, dad);
     computeParsimonyMultiThread(bfs);
-    // if ((dad_branch->partial_lh_computed & 2) == 0)
-    //     computePartialParsimony(dad_branch, dad);
-    // if ((node_branch->partial_lh_computed & 2) == 0)
-    //     computePartialParsimony(node_branch, node);
-    // now combine likelihood at the branch
 
     int pars_size = getBitsBlockSize();
     int entry_size = getBitsEntrySize();
