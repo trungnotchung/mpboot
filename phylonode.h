@@ -104,6 +104,7 @@ private:
         vector containing the partial parsimony scores
      */
     UINT *partial_pars;
+
 };
 
 /**

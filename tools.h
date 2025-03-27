@@ -414,7 +414,7 @@ struct Params {
         /**
          * Number of threads
          */
-        int pp_thread;
+        int pp_thread = 1;
 
 	/**
 	 *  Number of starting parsimony trees
