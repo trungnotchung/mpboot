@@ -954,6 +954,13 @@ void parseArg(int argc, char *argv[], Params &params) {
 				//params.run_mode = BOTH_ALG;
 				continue;
 			}
+			if (strcmp(argv[cnt], "-pp_thread") == 0) {
+				cnt++;
+				if (cnt >= argc)
+					throw "Invalid thread number";
+				params.pp_thread = convert_int(argv[cnt]);
+				continue;
+			}
 			if (strcmp(argv[cnt], "-e") == 0) {
 				cnt++;
 				if (cnt >= argc)

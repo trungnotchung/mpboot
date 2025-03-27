@@ -13,6 +13,7 @@
 #define PHYLONODE_H
 
 #include "node.h"
+#include "queue"
 
 typedef short int UBYTE;
 
@@ -103,7 +104,6 @@ private:
         vector containing the partial parsimony scores
      */
     UINT *partial_pars;
-
 };
 
 /**
@@ -164,6 +164,8 @@ public:
         tell that all partial likelihood vectors (in reverse direction) below this node are not computed
      */
     void clearReversePartialLh(PhyloNode *dad);
+
+    int dependency;
 };
 
 

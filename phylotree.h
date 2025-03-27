@@ -31,6 +31,7 @@
 #include "optimization.h"
 #include "model/rateheterogeneity.h"
 #include "phyloanalysis.h"
+#include "thread"
 
 const double MIN_BRANCH_LEN = 0.000001; // NEVER TOUCH THIS CONSTANT AGAIN PLEASE!
 const double MAX_BRANCH_LEN = 100.0;
@@ -438,6 +439,14 @@ public:
      */
     virtual void computePartialParsimony(PhyloNeighbor *dad_branch, PhyloNode *dad);
 
+    /**
+            compute partial parsimony score of the subtree rooted at dad from startPtn to endPtn
+            @param dad_branch the branch leading to the subtree
+            @param dad its dad, used to direct the tranversal
+            @param startPtn start pattern
+            @param endPtn end pattern
+     */
+    void computePartialParsimonyMultiThreads(PhyloNeighbor *dad_branch, PhyloNode *dad, int startPtn, int endPtn);
 
     /**
             compute tree parsimony score on a branch
@@ -447,6 +456,17 @@ public:
             @return parsimony score of the tree
      */
     virtual int computeParsimonyBranch(PhyloNeighbor *dad_branch, PhyloNode *dad, int *branch_subst = NULL);
+
+    /**
+            compute tree parsimony score on a branch
+            @param dad_branch the branch leading to the subtree
+            @param dad its dad, used to direct the tranversal
+            @param branch_subst (OUT) if not NULL, the number of substitutions on this branch
+            @return parsimony score of the tree
+     */
+    int computeParsimonyBranchMultiThreads(PhyloNeighbor *dad_branch, PhyloNode *dad, int *branch_subst = NULL);
+
+    vector<pair<PhyloNeighbor*, PhyloNode*> > initializeComputeParsimony(PhyloNeighbor *dad_branch, PhyloNode *dad);
 
     void printParsimonyStates(PhyloNeighbor *dad_branch = NULL, PhyloNode *dad = NULL);
 
