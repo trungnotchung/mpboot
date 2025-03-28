@@ -165,8 +165,6 @@ public:
         tell that all partial likelihood vectors (in reverse direction) below this node are not computed
      */
     void clearReversePartialLh(PhyloNode *dad);
-
-    int dependency;
 };
 
 
