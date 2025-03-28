@@ -1082,6 +1082,9 @@ int PhyloTree::computeParsimonyBranchMultiThreads(PhyloNeighbor *dad_branch, Phy
             threads.push_back(thread(&PhyloTree::computePartialParsimonyMultiThreads, this, node_branch, node, startPtn, endPtn)); 
         }
     }
+    for (int i = 0; i < (int)threads.size(); ++i) {
+        threads[i].join();
+    }
     finalizeComputeParsimonyMultiThreads(topo_sorted_branches);
 
     int pars_size = getBitsBlockSize();
