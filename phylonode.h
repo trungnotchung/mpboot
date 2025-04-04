@@ -105,6 +105,7 @@ private:
      */
     UINT *partial_pars;
 
+    std::mutex partial_lh_mutex;
 };
 
 /**

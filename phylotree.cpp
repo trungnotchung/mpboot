@@ -998,7 +998,9 @@ void PhyloTree::computePartialParsimonyMultiThreads(PhyloNeighbor *dad_branch, P
             	}
             	dad_branch->partial_pars[ptn/8] = states_dad;
             }
+            dad_branch->partial_lh_mutex.lock();
             dad_branch->partial_pars[pars_size - 1] += pars_steps;
+            dad_branch->partial_lh_mutex.unlock();
         }
         return;
     } // END OF DNA VERSION
