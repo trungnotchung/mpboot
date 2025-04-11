@@ -1078,6 +1078,7 @@ int PhyloTree::computeParsimonyBranchMultiThreads(PhyloNeighbor *dad_branch, Phy
     for (int i = 0; i < params->pp_thread; i++) {
         int startPtn = i * ptnPerThread;
         int endPtn = min((int)aln->size(), (i + 1) * ptnPerThread) - 1;
+        if (startPtn > endPtn) continue;
         if ((dad_branch->partial_lh_computed & 2) == 0) {
             threads.push_back(thread(&PhyloTree::computePartialParsimonyMultiThreads, this, dad_branch, dad, startPtn, endPtn));
         }
