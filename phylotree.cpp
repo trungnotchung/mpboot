@@ -1072,8 +1072,9 @@ int PhyloTree::computeParsimonyBranchMultiThreads(PhyloNeighbor *dad_branch, Phy
 
     vector<pair<PhyloNeighbor*, PhyloNode*> > topo_sorted_branches = initializeComputeParsimonyMultiThreads(dad_branch, dad);
     vector<thread> threads;
-    int ptnPerThread = (aln->size()) / params->pp_thread;
+    int ptnPerThread = (aln->size() + params->pp_thread - 1) / params->pp_thread;
     if (ptnPerThread % 8 != 0) ptnPerThread += 8 - (ptnPerThread % 8);
+    // int ptnPerThread = aln->size();
     for (int i = 0; i < params->pp_thread; i++) {
         int startPtn = i * ptnPerThread;
         int endPtn = min((int)aln->size(), (i + 1) * ptnPerThread) - 1;
@@ -1088,6 +1089,11 @@ int PhyloTree::computeParsimonyBranchMultiThreads(PhyloNeighbor *dad_branch, Phy
         threads[i].join();
     }
     finalizeComputeParsimonyMultiThreads(topo_sorted_branches);
+    // if ((dad_branch->partial_lh_computed & 2) == 0)
+    //     computePartialParsimony(dad_branch, dad);
+    // if ((node_branch->partial_lh_computed & 2) == 0)
+    //     computePartialParsimony(node_branch, node);
+    // // now combine likelihood at the branch
 
     int pars_size = getBitsBlockSize();
     int entry_size = getBitsEntrySize();
