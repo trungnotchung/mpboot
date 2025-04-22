@@ -14,6 +14,7 @@
 
 #include "node.h"
 #include "queue"
+#include <mutex>
 
 typedef short int UBYTE;
 
@@ -22,7 +23,8 @@ A neighbor in a phylogenetic tree
 
     @author BUI Quang Minh, Steffen Klaere, Arndt von Haeseler <minh.bui@univie.ac.at>
  */
-class PhyloNeighbor : public Neighbor {
+class PhyloNeighbor : public Neighbor
+{
     friend class PhyloNode;
     friend class PhyloTree;
     friend class IQTree;
@@ -38,7 +40,8 @@ public:
 
         @param alength length of branch
      */
-    PhyloNeighbor(Node *anode, double alength) : Neighbor(anode, alength) {
+    PhyloNeighbor(Node *anode, double alength) : Neighbor(anode, alength)
+    {
         partial_lh = NULL;
         partial_lh_computed = 0;
         lh_scale_factor = 0.0;
@@ -51,7 +54,8 @@ public:
         @param alength length of branch
         @param aid branch ID
      */
-    PhyloNeighbor(Node *anode, double alength, int aid) : Neighbor(anode, alength, aid) {
+    PhyloNeighbor(Node *anode, double alength, int aid) : Neighbor(anode, alength, aid)
+    {
         partial_lh = NULL;
         partial_lh_computed = 0;
         lh_scale_factor = 0.0;
@@ -61,14 +65,16 @@ public:
     /**
         tell that the partial likelihood vector is not computed
      */
-    inline void clearPartialLh() {
+    inline void clearPartialLh()
+    {
         partial_lh_computed = 0;
     }
 
     /**
      *  tell that the partial likelihood vector is computed
      */
-    inline void unclearPartialLh() {
+    inline void unclearPartialLh()
+    {
         partial_lh_computed = 1;
     }
 
@@ -79,7 +85,6 @@ public:
     void clearForwardPartialLh(Node *dad);
 
 private:
-
     /**
         true if the partial likelihood was computed
      */
@@ -113,7 +118,8 @@ A node in a phylogenetic tree
 
     @author BUI Quang Minh, Steffen Klaere, Arndt von Haeseler <minh.bui@univie.ac.at>
  */
-class PhyloNode : public Node {
+class PhyloNode : public Node
+{
     friend class PhyloTree;
 
 public:
@@ -155,8 +161,6 @@ public:
      */
     virtual void addNeighbor(Node *node, double length, int id = -1);
 
-
-
     /**
         tell that all partial likelihood vectors below this node are not computed
      */
@@ -168,11 +172,9 @@ public:
     void clearReversePartialLh(PhyloNode *dad);
 };
 
-
 /**
     Node vector
  */
-typedef vector<PhyloNode*> PhyloNodeVector;
-
+typedef vector<PhyloNode *> PhyloNodeVector;
 
 #endif
