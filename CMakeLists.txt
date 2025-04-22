@@ -516,3 +516,5 @@ set(CPACK_STRIP_FILES TRUE)
 include (CPack)
 
 add_custom_target(dist COMMAND ${CMAKE_MAKE_PROGRAM} package_source)
+
+target_link_libraries(mpboot pthread)
