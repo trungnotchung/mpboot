@@ -148,8 +148,7 @@ void initializeNewColumn(IQTree *tree, Alignment *alignment, vector<int> &rotate
 	}
 	alignment->ungroupSitePattern();
 	tree->add_row = true;
-	tree->save_branch_states_dad = new UINT[(alignment->size() + 7) / 8 + 1];
-	tree->computeParsimony();
+	tree->root_states = new UINT[(alignment->size() + 7) / 8 + 1];
 	tree->initMutation(permCol, compressedPermCol);
 }
 
@@ -239,7 +238,7 @@ void placeNewSamplesOntoExistingTree(Params &params)
 	cout << "\n========== Start placement core ==========\n";
 
 	// free memory
-	delete[] tree->save_branch_states_dad;
+	delete[] tree->root_states;
 	tree->add_row = false;
 
 	cout << "Tree parsimony after init mutations: " << tree->computeParsimonyScoreMutation() << '\n';

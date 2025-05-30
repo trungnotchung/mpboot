@@ -298,34 +298,70 @@ public:
                 @param tree the tree to copy
          */
 
+        /**
+         * Add a row to the tree
+         */
         bool add_row;
-        UINT *save_branch_states_dad;
+
+        /**
+         * Save the states of the root node
+         */
+        UINT *root_states;
+
+        /**
+         * Root mutations
+         */
         vector<Mutation> root_mutations;
-        // init mutation for calculate
+
+        /**
+         * Initialize mutation data for MAT
+         */
         void initMutation(vector<int> &permCol, vector<int> &compressedPermCol);
 
-        // compute mutation for a branch
+        /**
+         * Compute mutation for a branch
+         */
         void computeMutationBranch(vector<int> &permCol, vector<int> &compressedPermCol, PhyloNeighbor *dad_branch, PhyloNode *dad, int *branch_subst = NULL);
 
+        /**
+         * Compute partial mutation for a branch
+         */
         void computePartialMutation(UINT *states_dad, vector<int> &permCol, vector<int> &compressedPermCol, PhyloNeighbor *dad_branch, PhyloNode *dad);
 
-        // compute parsimony score using mutation
+        /**
+         * Compute parsimony score using mutation
+         */
         int computeParsimonyScoreMutation();
 
+        /**
+         * Compute parsimony score for a branch using mutation
+         */
         int computeParsimonyBranchMutation(PhyloNeighbor *dad_branch, PhyloNode *dad, int *branch_subst = NULL);
 
+        /**
+         * Compute partial parsimony score for a branch using mutation
+         */
         int computePartialParsimonyMutation(PhyloNeighbor *dad_branch, PhyloNode *dad);
 
+        /**
+         * Compute the breadth-first expansion of the vertices of the tree
+         */
         std::vector<std::pair<PhyloNode *, PhyloNeighbor *>> breadth_first_expansion();
 
+        /**
+         * Doing depth-first search on the subtree rooted at node
+         */
         void depth_first_search(PhyloNode *node, PhyloNode *dad);
 
+        /**
+         * Doing depth-first search on the entire tree
+         */
         void depth_first_search();
 
         std::vector<Mutation> cur_excess_mutations, cur_missing_sample_mutations, cur_ancestral_mutations;
         std::vector<int> visited_missing_sample_mutations, visited_ancestral_mutations;
         std::vector<int> visited_excess_mutations;
-        int timerOptimized, timerRegular;
+        int timer_optimized, timer_regular;
 
         // calculate new mutations
         void calculatePlacementMutation(CandidateNode &input, bool compute_parsimony_scores = false, bool compute_vecs = false);
