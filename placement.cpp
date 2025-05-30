@@ -1,40 +1,12 @@
 #ifdef HAVE_CONFIG_H
 #include <config.h>
 #endif
-#include <iqtree_config.h>
-#include "phylotree.h"
-#include "phylosupertree.h"
-#include "phylosupertreeplen.h"
-#include "phyloanalysis.h"
-#include "alignment.h"
-#include "superalignment.h"
-#include "iqtree.h"
-#include "model/modelgtr.h"
-#include "model/modeldna.h"
-#include "myreader.h"
-#include "model/rateheterogeneity.h"
-#include "model/rategamma.h"
-#include "model/rateinvar.h"
-#include "model/rategammainvar.h"
-// #include "modeltest_wrapper.h"
-#include "model/modelprotein.h"
-#include "model/modelbin.h"
-#include "model/modelcodon.h"
-#include "stoprule.h"
 
-#include "mtreeset.h"
-#include "mexttree.h"
-#include "model/ratemeyerhaeseler.h"
-#include "whtest_wrapper.h"
-#include "model/partitionmodel.h"
-#include "guidedbootstrap.h"
-#include "model/modelset.h"
-#include "timeutil.h"
-#include "parstree.h"
-#include "tinatree.h"
-#include "sprparsimony.h"
+#include "phylotree.h"
+#include "alignment.h"
+#include "iqtree.h"
+#include "mutation.h"
 #include "placement.h"
-#include <algorithm>
 
 void checkCorectTree(char *originTreeFile, char *newTreeFile)
 {
