@@ -201,10 +201,8 @@ int readVCFFile(IQTree *tree, Alignment **alignment, Params &params)
 	vector<int> compressedPermCol = permCol;
 	initialize(tree, *alignment, savePermCol, permCol, compressedPermCol);
 
-	auto startTime = getCPUTime();
 	while (true)
 	{
-		startTime = getCPUTime();
 		int numColumn = (*alignment)->readPartialVCF(in, params.sequence_type, savePermCol, params.numStartRow, totalColumn, 8);
 		if (numColumn == 0)
 		{
@@ -213,7 +211,6 @@ int readVCFFile(IQTree *tree, Alignment **alignment, Params &params)
 
 		tree->clearAllPartialLH();
 		totalColumn += numColumn;
-		startTime = getCPUTime();
 		initialize(tree, *alignment, savePermCol, permCol, compressedPermCol);
 	}
 
@@ -252,7 +249,7 @@ void placeNewSamplesOntoExistingTree(Params &params)
 	for (int i = 0; i < (int)alignment->missingSamples.size(); ++i)
 	{
 		missingSamples[i].mutations = alignment->missingSamples[i];
-		missingSamples[i].name = alignment->remainName[i];
+		missingSamples[i].name = alignment->newSequenceNames[i];
 	}
 	numSample = min(numSample, params.numAddRow);
 

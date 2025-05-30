@@ -613,13 +613,15 @@ public:
         int n_informative_patterns;
         int n_informative_sites;
 
-        std::vector<std::string> remainName, remainSeq, saveCol;
+        std::vector<std::string> newSequenceNames, newSequences;
 
-        void addToAlignmentNewSeq(const string &newName, const string &newSeq, const vector<int> &permCol);
+        std::vector<std::string> initialColumnState;
 
-        void updateAlignmentNewSeq(const vector<string> &newSeqs, const vector<int> &permCol);
+        void updateAlignmentNewSequences(const vector<string> &newSeqs, const vector<int> &permCol);
 
-        void addToAlignmentNewSeq(const vector<string> &newNames, const vector<string> &newSeqs, const vector<int> &permCol);
+        void addToAlignmentNewSequence(const string &newName, const string &newSeq, const vector<int> &permCol);
+
+        void addToAlignmentNewSequences(const vector<string> &newNames, const vector<string> &newSeqs, const vector<int> &permCol);
 
         char getMutationFromState(char state);
 
@@ -630,8 +632,6 @@ public:
         int readPartialVCF(ifstream &in, char *sequence_type, vector<int> &permCol, int numStartRow, int startIndex, int numColumn);
 
         int readVCF(char *filename, char *sequence_type, int numStartRow, int startIndex = 0);
-
-        int readVCF(char *filename, char *sequence_type, int numStartRow, vector<string> &leafNames);
 
         vector<vector<Mutation>> missingSamples;
         vector<vector<Mutation>> existingSamples;

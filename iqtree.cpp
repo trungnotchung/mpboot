@@ -60,7 +60,7 @@ void IQTree::init()
     bestScore = -DBL_MAX; // Best score found so far
     curIt = 1;
     cntItersNotImproved = 0;
-    globalScore = UINT_MAX; 
+    globalScore = UINT_MAX;
     cnt_tbr_spr_alternate = 1;
 
     cur_pars_score = -1;
@@ -658,7 +658,6 @@ void IQTree::initializePLL(Params &params)
     pllInst = pllCreateInstance(&pllAttr);
     // assert(pllInst != NULL);
 
-
     /* Read in the alignment file */
     stringstream pllAln;
     if (aln->isSuperAlignment())
@@ -694,7 +693,7 @@ void IQTree::initializePLL(Params &params)
     pllPartitions = pllPartitionsCommit(partitionInfo, pllAlignment);
     /* We don't need the the intermediate partition queue structure anymore */
     pllQueuePartitionsDestroy(&partitionInfo);
-    
+
     // Diep: 	Added this IF statement so that UFBoot-MP SPR code doesn't affect other IQTree mode
     // 			alignment in  UFBoot-MP SPR branch will be sorted by pattern and site pars score
     // PLL eliminates duplicate sites from the alignment and update weights vector
@@ -2506,15 +2505,18 @@ string IQTree::doNNISearch(int &nniCount, int &nniSteps)
 
 string IQTree::ppRunOriginalTbr()
 {
-    if (pllInst) {
+    if (pllInst)
+    {
         pllDestroyInstance(pllInst);
         pllInst = NULL;
     }
-    if (pllPartitions) {
+    if (pllPartitions)
+    {
         myPartitionsDestroy(pllPartitions);
         pllPartitions = NULL;
     }
-    if (pllAlignment) {
+    if (pllAlignment)
+    {
         pllAlignmentDataDestroy(pllAlignment);
         pllAlignment = NULL;
     }
@@ -2523,7 +2525,6 @@ string IQTree::ppRunOriginalTbr()
     aln->updateSitePatternAfterOptimized();
 
     initializePLL(*params);
-
 
     pllNewickTree *btree = pllNewickParseString(getTreeString().c_str());
     assert(btree != NULL);
@@ -2534,8 +2535,10 @@ string IQTree::ppRunOriginalTbr()
     printf("Tbr start...\n");
     printf("Tbr radius: %d %d\n", params->tbr_mintrav, params->tbr_maxtrav);
     int scoreAfterRunTbr;
-    if (!params->restructureTree) scoreAfterRunTbr = myPllOptimizeTbrParsimony(pllInst, pllPartitions, params->spr_mintrav, params->spr_maxtrav, this);
-    else scoreAfterRunTbr = pllOptimizeTbrParsimony(pllInst, pllPartitions, params->spr_mintrav, params->spr_maxtrav, this);
+    if (!params->restructureTree)
+        scoreAfterRunTbr = myPllOptimizeTbrParsimony(pllInst, pllPartitions, params->spr_mintrav, params->spr_maxtrav, this);
+    else
+        scoreAfterRunTbr = pllOptimizeTbrParsimony(pllInst, pllPartitions, params->spr_mintrav, params->spr_maxtrav, this);
     printf("Score after running tbr: %d\n", scoreAfterRunTbr);
 
     pllTreeToNewick(pllInst->tree_string, pllInst, pllPartitions, pllInst->start->back, PLL_FALSE,
@@ -2547,15 +2550,18 @@ string IQTree::ppRunOriginalTbr()
 
 string IQTree::ppRunOriginalSpr()
 {
-    if (pllInst) {
+    if (pllInst)
+    {
         pllDestroyInstance(pllInst);
         pllInst = NULL;
     }
-    if (pllPartitions) {
+    if (pllPartitions)
+    {
         myPartitionsDestroy(pllPartitions);
         pllPartitions = NULL;
     }
-    if (pllAlignment) {
+    if (pllAlignment)
+    {
         pllAlignmentDataDestroy(pllAlignment);
         pllAlignment = NULL;
     }
@@ -2564,7 +2570,6 @@ string IQTree::ppRunOriginalSpr()
     aln->updateSitePatternAfterOptimized();
 
     initializePLL(*params);
-
 
     pllNewickTree *btree = pllNewickParseString(getTreeString().c_str());
     assert(btree != NULL);
@@ -2575,8 +2580,10 @@ string IQTree::ppRunOriginalSpr()
     printf("Spr start...\n");
     printf("Spr radius: %d %d\n", params->spr_mintrav, params->spr_maxtrav);
     int scoreAfterRunSpr;
-    if (!params->restructureTree) scoreAfterRunSpr = myPllOptimizeSprParsimony(pllInst, pllPartitions, params->spr_mintrav, params->spr_maxtrav, this);
-    else scoreAfterRunSpr = pllOptimizeSprParsimony(pllInst, pllPartitions, params->spr_mintrav, params->spr_maxtrav, this);
+    if (!params->restructureTree)
+        scoreAfterRunSpr = myPllOptimizeSprParsimony(pllInst, pllPartitions, params->spr_mintrav, params->spr_maxtrav, this);
+    else
+        scoreAfterRunSpr = pllOptimizeSprParsimony(pllInst, pllPartitions, params->spr_mintrav, params->spr_maxtrav, this);
     printf("Score after running spr: %d\n", scoreAfterRunSpr);
 
     pllTreeToNewick(pllInst->tree_string, pllInst, pllPartitions, pllInst->start->back, PLL_FALSE,
@@ -5274,7 +5281,7 @@ void IQTree::addRemainRow(const vector<string> &remainRowName, const vector<stri
 
     for (int i = 0; i < k; ++i)
     {
-        aln->addToAlignmentNewSeq(remainRowName[perm[i]], remainRow[perm[i]], permCol);
+        aln->addToAlignmentNewSequence(remainRowName[perm[i]], remainRow[perm[i]], permCol);
     }
 
     for (int i = 0; i < k; ++i)
@@ -5321,7 +5328,7 @@ int IQTree::addRemainRowSPR(const vector<string> &remainRowName, const vector<st
 
     for (int i = 0; i < k; ++i)
     {
-        aln->addToAlignmentNewSeq(remainRowName[perm[i]], remainRow[perm[i]], permCol);
+        aln->addToAlignmentNewSequence(remainRowName[perm[i]], remainRow[perm[i]], permCol);
     }
 
     initializePLL(params);
@@ -5339,44 +5346,58 @@ int IQTree::addRemainRowSPR(const vector<string> &remainRowName, const vector<st
     return score;
 }
 
-void IQTree::getLeafName(vector<string> &leafName) {
+void IQTree::getLeafName(vector<string> &leafName)
+{
     getLeafName(root, root->neighbors[0]->node, leafName);
-    getLeafName(root->neighbors[0]->node, root, leafName);   
+    getLeafName(root->neighbors[0]->node, root, leafName);
 }
 
-void IQTree::getLeafName(Node *node, Node *dad, vector<string> &leafName) {
-    if(node->isLeaf()) {
+void IQTree::getLeafName(Node *node, Node *dad, vector<string> &leafName)
+{
+    if (node->isLeaf())
+    {
         leafName.push_back(node->name);
         return;
     }
-    FOR_NEIGHBOR_IT(node, dad, it) {
+    FOR_NEIGHBOR_IT(node, dad, it)
+    {
         getLeafName((*it)->node, node, leafName);
-        if(node->name == "") {
+        if (node->name == "")
+        {
             node->name = (*it)->node->name;
-        } else {
+        }
+        else
+        {
             node->name = min(node->name, (*it)->node->name);
         }
     }
 }
 
-void IQTree::assignRoot(string &rootName) {
-    if(root->name == rootName) return;
+void IQTree::assignRoot(string &rootName)
+{
+    if (root->name == rootName)
+        return;
     assignRoot(root->neighbors[0]->node, root, rootName);
 }
 
-bool IQTree::assignRoot(Node *node, Node *dad, string &rootName) {
-    if(node->isLeaf() && node->name == rootName) {
+bool IQTree::assignRoot(Node *node, Node *dad, string &rootName)
+{
+    if (node->isLeaf() && node->name == rootName)
+    {
         root = node;
         return true;
     }
-    FOR_NEIGHBOR_IT(node, dad, it) {
-        if(assignRoot((*it)->node, node, rootName)) {
+    FOR_NEIGHBOR_IT(node, dad, it)
+    {
+        if (assignRoot((*it)->node, node, rootName))
+        {
             return true;
         }
     }
 }
 
-int IQTree::initInfoNode(vector<string> &leafName) {
+int IQTree::initInfoNode(vector<string> &leafName)
+{
     PhyloNode *node1 = (PhyloNode *)root;
     PhyloNode *node2 = (PhyloNode *)root->neighbors[0]->node;
 
@@ -5385,13 +5406,18 @@ int IQTree::initInfoNode(vector<string> &leafName) {
     return lf + rg;
 }
 
-int IQTree::initInfoNode(PhyloNode *node, PhyloNode *dad, vector<string> &leafName) {
-    if(node->isLeaf()) {
+int IQTree::initInfoNode(PhyloNode *node, PhyloNode *dad, vector<string> &leafName)
+{
+    if (node->isLeaf())
+    {
         int k = lower_bound(leafName.begin(), leafName.end(), node->name) - leafName.begin();
-        if(k < leafName.size() && leafName[k] == node->name) {
+        if (k < leafName.size() && leafName[k] == node->name)
+        {
             node->setMissingNode(-1);
             return 1;
-        } else {
+        }
+        else
+        {
             node->setMissingNode(1);
             return 0;
         }
@@ -5399,51 +5425,71 @@ int IQTree::initInfoNode(PhyloNode *node, PhyloNode *dad, vector<string> &leafNa
 
     int sum = 0;
     bool check = true;
-    FOR_NEIGHBOR_IT(node, dad, it) {
+    FOR_NEIGHBOR_IT(node, dad, it)
+    {
         int tmp = initInfoNode((PhyloNode *)(*it)->node, node, leafName);
-        if(tmp == 0) {
+        if (tmp == 0)
+        {
             check = false;
-        } else {
-            if(node->name == "") {
+        }
+        else
+        {
+            if (node->name == "")
+            {
                 node->name = (*it)->node->name;
-            } else {
+            }
+            else
+            {
                 node->name = min(node->name, (*it)->node->name);
             }
         }
         sum += tmp;
     }
 
-    if(check) {
+    if (check)
+    {
         node->setMissingNode(-1);
-    } else {
+    }
+    else
+    {
         node->setMissingNode(1);
     }
     return sum;
 }
 
-bool IQTree::compareTree(IQTree *anotherTree) {
-    if(root->name != anotherTree->root->name) return false;
+bool IQTree::compareTree(IQTree *anotherTree)
+{
+    if (root->name != anotherTree->root->name)
+        return false;
     return compareTree((PhyloNode *)root, NULL, anotherTree->root, NULL);
 }
 
-bool IQTree::compareTree(PhyloNode *node1, PhyloNode *dad1, Node *node2, Node *dad2) {
+bool IQTree::compareTree(PhyloNode *node1, PhyloNode *dad1, Node *node2, Node *dad2)
+{
     bool check = true;
-    FOR_NEIGHBOR_IT(node1, dad1, it1) {
+    FOR_NEIGHBOR_IT(node1, dad1, it1)
+    {
         PhyloNode *child1 = (PhyloNode *)(*it1)->node;
-        if(!child1->checkMissingNode()) {
+        if (!child1->checkMissingNode())
+        {
             bool found = false;
-            FOR_NEIGHBOR_IT(node2, dad2, it2) {
+            FOR_NEIGHBOR_IT(node2, dad2, it2)
+            {
                 Node *child2 = (*it2)->node;
-                if(child1->name == child2->name) {
+                if (child1->name == child2->name)
+                {
                     found = true;
                     check &= compareTree(child1, node1, child2, node2);
                     break;
                 }
             }
-            if(!found) {
+            if (!found)
+            {
                 return false;
             }
-        } else {
+        }
+        else
+        {
             check &= compareTree(child1, node1, node2, dad2);
         }
     }
