@@ -316,17 +316,17 @@ public:
         /**
          * Initialize mutation data for MAT
          */
-        void initMutation(vector<int> &permCol, vector<int> &compressedPermCol);
+        void initMutation(vector<int> &perm_col, vector<int> &compressed_perm_col);
 
         /**
          * Compute mutation for a branch
          */
-        void computeMutationBranch(vector<int> &permCol, vector<int> &compressedPermCol, PhyloNeighbor *dad_branch, PhyloNode *dad, int *branch_subst = NULL);
+        void computeMutationBranch(vector<int> &perm_col, vector<int> &compressed_perm_col, PhyloNeighbor *dad_branch, PhyloNode *dad, int *branch_subst = NULL);
 
         /**
          * Compute partial mutation for a branch
          */
-        void computePartialMutation(UINT *states_dad, vector<int> &permCol, vector<int> &compressedPermCol, PhyloNeighbor *dad_branch, PhyloNode *dad);
+        void computePartialMutation(UINT *states_dad, vector<int> &perm_col, vector<int> &compressed_perm_col, PhyloNeighbor *dad_branch, PhyloNode *dad);
 
         /**
          * Compute parsimony score using mutation

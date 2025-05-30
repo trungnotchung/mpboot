@@ -5689,7 +5689,7 @@ void PhyloTree::printTransMatrices(Node *node, Node *dad)
     printTransMatrices((*it)->node, node);
 }
 
-void PhyloTree::computePartialMutation(UINT *states_dad, vector<int> &permCol, vector<int> &compressedPermCol, PhyloNeighbor *dad_branch, PhyloNode *dad)
+void PhyloTree::computePartialMutation(UINT *states_dad, vector<int> &perm_col, vector<int> &compressed_perm_col, PhyloNeighbor *dad_branch, PhyloNode *dad)
 {
     PhyloNode *node = (PhyloNode *)dad_branch->node;
     int ptn;
@@ -5750,8 +5750,8 @@ void PhyloTree::computePartialMutation(UINT *states_dad, vector<int> &permCol, v
                     if (1 & (state_left >> left_child_nuc))
                         break;
                 Mutation left_child_mut;
-                left_child_mut.position = permCol[p];
-                left_child_mut.compressed_position = compressedPermCol[p];
+                left_child_mut.position = perm_col[p];
+                left_child_mut.compressed_position = compressed_perm_col[p];
                 left_child_mut.mut_nuc = (1 << left_child_nuc);
                 left_child_mut.par_nuc = (1 << dad_nuc);
                 left_child_mut.ref_nuc = aln->reference_nuc[left_child_mut.position];
@@ -5777,8 +5777,8 @@ void PhyloTree::computePartialMutation(UINT *states_dad, vector<int> &permCol, v
                     if (1 & (state_right >> right_child_nuc))
                         break;
                 Mutation mut_r;
-                mut_r.position = permCol[p];
-                mut_r.compressed_position = compressedPermCol[p];
+                mut_r.position = perm_col[p];
+                mut_r.compressed_position = compressed_perm_col[p];
                 mut_r.mut_nuc = (1 << right_child_nuc);
                 mut_r.par_nuc = (1 << dad_nuc);
                 mut_r.ref_nuc = aln->reference_nuc[mut_r.position];
@@ -5801,15 +5801,15 @@ void PhyloTree::computePartialMutation(UINT *states_dad, vector<int> &permCol, v
     {
         if (left_child)
         {
-            computePartialMutation(left, permCol, compressedPermCol, (PhyloNeighbor *)(*it), (PhyloNode *)node);
+            computePartialMutation(left, perm_col, compressed_perm_col, (PhyloNeighbor *)(*it), (PhyloNode *)node);
             left_child = false;
             continue;
         }
-        computePartialMutation(right, permCol, compressedPermCol, (PhyloNeighbor *)(*it), (PhyloNode *)node);
+        computePartialMutation(right, perm_col, compressed_perm_col, (PhyloNeighbor *)(*it), (PhyloNode *)node);
     }
 }
 
-void PhyloTree::computeMutationBranch(vector<int> &permCol, vector<int> &compressedPermCol, PhyloNeighbor *dad_branch, PhyloNode *dad, int *branch_subst)
+void PhyloTree::computeMutationBranch(vector<int> &perm_col, vector<int> &compressed_perm_col, PhyloNeighbor *dad_branch, PhyloNode *dad, int *branch_subst)
 {
     PhyloNode *node = (PhyloNode *)dad_branch->node;
     PhyloNeighbor *node_branch = (PhyloNeighbor *)node->findNeighbor(dad);
@@ -5870,8 +5870,8 @@ void PhyloTree::computeMutationBranch(vector<int> &permCol, vector<int> &compres
                     if (1 & (state_left >> left_child_nuc))
                         break;
                 Mutation left_child_mut;
-                left_child_mut.position = permCol[col];
-                left_child_mut.compressed_position = compressedPermCol[col];
+                left_child_mut.position = perm_col[col];
+                left_child_mut.compressed_position = compressed_perm_col[col];
                 left_child_mut.mut_nuc = (1 << left_child_nuc);
                 left_child_mut.par_nuc = (1 << dad_nuc);
                 left_child_mut.ref_nuc = aln->reference_nuc[left_child_mut.position];
@@ -5890,8 +5890,8 @@ void PhyloTree::computeMutationBranch(vector<int> &permCol, vector<int> &compres
                     if (1 & (state_right >> right_child_nuc))
                         break;
                 Mutation right_child_mut;
-                right_child_mut.position = permCol[col];
-                right_child_mut.compressed_position = compressedPermCol[col];
+                right_child_mut.position = perm_col[col];
+                right_child_mut.compressed_position = compressed_perm_col[col];
                 right_child_mut.mut_nuc = (1 << right_child_nuc);
                 right_child_mut.par_nuc = (1 << dad_nuc);
                 right_child_mut.ref_nuc = aln->reference_nuc[right_child_mut.position];
@@ -5901,22 +5901,22 @@ void PhyloTree::computeMutationBranch(vector<int> &permCol, vector<int> &compres
         }
     }
 
-    computePartialMutation(left_branch_states_dad, permCol, compressedPermCol, dad_branch, dad);
-    computePartialMutation(right_branch_states_dad, permCol, compressedPermCol, node_branch, node);
+    computePartialMutation(left_branch_states_dad, perm_col, compressed_perm_col, dad_branch, dad);
+    computePartialMutation(right_branch_states_dad, perm_col, compressed_perm_col, node_branch, node);
 }
 
-void PhyloTree::initMutation(vector<int> &permCol, vector<int> &compressedPermCol)
+void PhyloTree::initMutation(vector<int> &perm_col, vector<int> &compressed_perm_col)
 {
     // Compute parsimony is necessary for tracing back the mutations
     computeParsimony();
-    computeMutationBranch(permCol, compressedPermCol, (PhyloNeighbor *)root->neighbors[0], (PhyloNode *)root);
+    computeMutationBranch(perm_col, compressed_perm_col, (PhyloNeighbor *)root->neighbors[0], (PhyloNode *)root);
 
     int ptn = 0, counter = 0;
     int nptn = aln->size();
     for (int i = 0; i < nptn; ++i)
     {
         char root_nuc = ((root_states[ptn] >> (i * 4)) & 15);
-        char ref_nuc = aln->reference_nuc[permCol[i]];
+        char ref_nuc = aln->reference_nuc[perm_col[i]];
         if ((root_nuc & ref_nuc) == 0)
         {
             char dad_nuc = 0;
@@ -5934,8 +5934,8 @@ void PhyloTree::initMutation(vector<int> &permCol, vector<int> &compressedPermCo
             }
 
             Mutation m;
-            m.position = permCol[i];
-            m.compressed_position = compressedPermCol[i];
+            m.position = perm_col[i];
+            m.compressed_position = compressed_perm_col[i];
             m.mut_nuc = (1 << mut_nuc);
             m.ref_nuc = ref_nuc;
             m.par_nuc = (1 << dad_nuc);
@@ -6034,7 +6034,7 @@ vector<pair<PhyloNode *, PhyloNeighbor *>> PhyloTree::breadth_first_expansion()
         }
     }
 
-    for (int i = (int)bfs.size() - 1; i >= 0; --i)
+    for (int i = bfs.size() - 1; i >= 0; --i)
     {
         PhyloNode *node = bfs[i].first;
         PhyloNeighbor *node_branch = bfs[i].second;
