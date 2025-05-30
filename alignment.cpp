@@ -1728,7 +1728,7 @@ int Alignment::readPartialVCF(ifstream &in, char *sequence_type, vector<int> &pe
             for (int j = 0; j < (int)sequences[i].length(); ++j)
                 saveCol[j] += sequences[i][j];
         }
-        permCol = findPermCol();
+        permCol = findRotatedColumnPermutation();
         return curPosition;
     }
 
@@ -3701,32 +3701,32 @@ double Alignment::multinomialProb(IntVector &pattern_freq)
     return (fac - sumFac + sumProb);
 }
 
-vector<int> Alignment::findPermCol()
+// Find the permutation of columns after rotation
+vector<int> Alignment::findRotatedColumnPermutation()
 {
-    // cout << (int)saveCol.size() << " " << getNSite() << '\n';
     assert(getNSite() == (int)saveCol.size());
-    vector<int> perm;
-    perm.assign(getNSite(), 0);
+    vector<int> perm(getNSite(), 0);
     char char_to_state[NUM_CHAR];
     computeUnknownState();
     buildStateMap(char_to_state, seq_type);
     map<Pattern, vector<int>> patternMap;
+    // Build pattern map
     for (int i = 0; i < getNSite(); ++i)
     {
         Pattern ptn = getPattern(i);
         patternMap[ptn].push_back(i);
     }
-    for (int i = 0; i < getNSite(); ++i)
+    for (int col = 0; col < getNSite(); ++col)
     {
+        // For each column, build a pattern
+        // Find initial index of the pattern
         Pattern nptn;
-        for (int j = 0; j < (int)saveCol[i].length(); ++j)
+        for (int i = 0; i < saveCol[col].length(); ++i)
         {
-            nptn += char_to_state[(int)saveCol[i][j]];
+            nptn += char_to_state[(int)saveCol[col][i]];
         }
-        vector<int> &tmp = patternMap[nptn];
-        assert((int)tmp.size() > 0);
-        perm[tmp.back()] = i;
-        tmp.pop_back();
+        perm[patternMap[nptn].back()] = col;
+        patternMap[nptn].pop_back();
     }
     return perm;
 }

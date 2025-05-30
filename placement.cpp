@@ -152,16 +152,16 @@ void initialize(IQTree *tree, Alignment *alignment, vector<int> &savePermCol, ve
 	tree->initMutation(permCol, compressedPermCol);
 }
 
-int readFile(ifstream &inFileStream, char *outFileName, int numRow)
+int readInitialAlignment(ifstream &inFileStream, char *outFileName, int numInitialRow)
 {
 	ofstream outFile(outFileName);
 	if (!outFile.is_open())
 	{
-		cout << "Cannot open file " << outFileName << '\n';
-		return 0;
+		cout << "Cannot open outputfile :" << outFileName << '\n';
+		exit(1);
 	}
 	string line;
-	int curRow = 0;
+	int currentRow = 0;
 	while (getline(inFileStream, line))
 	{
 		if (line == "")
@@ -169,14 +169,14 @@ int readFile(ifstream &inFileStream, char *outFileName, int numRow)
 			continue;
 		}
 		outFile << line << '\n';
-		++curRow;
-		if (curRow >= numRow)
+		++currentRow;
+		if (currentRow >= numInitialRow)
 		{
 			break;
 		}
 	}
 	outFile.close();
-	return curRow;
+	return currentRow;
 }
 
 int readVCFFile(IQTree *tree, Alignment **alignment, Params &params)
@@ -188,15 +188,15 @@ int readVCFFile(IQTree *tree, Alignment **alignment, Params &params)
 	string line;
 	in.exceptions(ios::badbit);
 
-	int totalColumn = readFile(in, "temp.vcf", 12) - 1;
+	// Read first 12 lines and create tree alignment
+	int totalColumn = readInitialAlignment(in, "temp.vcf", 12) - 1; // Read first 12 lines and write to temp.vcf
 	*alignment = new Alignment("temp.vcf", params.sequence_type, params.intype, params.numStartRow);
 	(*alignment)->ungroupSitePattern();
 	std::remove("temp.vcf");
-
 	tree->setAlignment(*alignment);
 	tree->aln = *alignment;
 
-	vector<int> permCol = (*alignment)->findPermCol();
+	vector<int> permCol = (*alignment)->findRotatedColumnPermutation();
 	vector<int> savePermCol = permCol;
 	vector<int> compressedPermCol = permCol;
 	initialize(tree, *alignment, savePermCol, permCol, compressedPermCol);
@@ -221,24 +221,15 @@ int readVCFFile(IQTree *tree, Alignment **alignment, Params &params)
 	return totalColumn;
 }
 
-void addMoreRowMutation(Params &params)
+void placeNewSamplesOntoExistingTree(Params &params)
 {
 	Alignment *alignment;
-
 	IQTree *tree;
 	tree = new IQTree;
-
 	char *fileName = params.mutation_tree_file;
 	bool isRooted = false;
 
-	if (params.tree_zip_file != NULL)
-	{
-		tree->readTree(params.tree_zip_file, fileName, isRooted);
-	}
-	else
-	{
-		tree->readTree(fileName, isRooted);
-	}
+	tree->readTree(fileName, isRooted);
 
 	int vecSize = readVCFFile(tree, &alignment, params) + 1;
 	// Init new tree's memory
