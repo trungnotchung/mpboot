@@ -613,29 +613,77 @@ public:
         int n_informative_patterns;
         int n_informative_sites;
 
-        std::vector<std::string> newSequenceNames, newSequences;
+        /**
+         * New sequence names
+         */
+        vector<string> newSequenceNames;
 
-        std::vector<std::string> initialColumnState;
+        /**
+         * New sequences
+         */
+        vector<string> newSequences;
 
+        /**
+         * Initial column state
+         * Using for finding rotated column permutation
+         */
+        vector<string> initialColumnState;
+
+        /**
+         * Missing sample mutations
+         */
+        vector<vector<Mutation>> missingSampleMutations;
+
+        /**
+         * Existing sample mutations
+         */
+        vector<vector<Mutation>> existingSampleMutations;
+
+        /**
+         * Reference nucleotides
+         */
+        vector<int> reference_nuc;
+
+        /**
+         * Replace current alignment with new sequences
+         */
         void updateAlignmentNewSequences(const vector<string> &newSeqs, const vector<int> &permCol);
 
+        /**
+         * Add a new sequence to the alignment
+         */
         void addToAlignmentNewSequence(const string &newName, const string &newSeq, const vector<int> &permCol);
 
+        /**
+         * Add new sequences to the alignment
+         */
         void addToAlignmentNewSequences(const vector<string> &newNames, const vector<string> &newSeqs, const vector<int> &permCol);
 
+        /**
+         * Get mutation from state
+         */
         char getMutationFromState(char state);
 
+        /**
+         * Get state from mutation
+         */
         int getStateFromMutation(int nuc);
 
+        /**
+         * Find rotated column permutation
+         */
         vector<int> findRotatedColumnPermutation();
 
+        /**
+         * Read partial VCF file
+         * Using for reducing memory usage
+         */
         int readPartialVCF(ifstream &in, char *sequence_type, vector<int> &permCol, int numStartRow, int startIndex, int numColumn);
 
-        int readVCF(char *filename, char *sequence_type, int numStartRow, int startIndex = 0);
-
-        vector<vector<Mutation>> missingSamples;
-        vector<vector<Mutation>> existingSamples;
-        vector<int> reference_nuc;
+        /**
+         * Read VCF file
+         */
+        int readVCF(char *filename, char *sequence_type, int numStartRow);
 
         void analyzeAlignment();
 

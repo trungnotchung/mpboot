@@ -132,17 +132,18 @@ string ppRunOriginalSpr(Alignment *alignment, Params &params, string newickTree 
 	return newTreeString;
 }
 
-void initialize(IQTree *tree, Alignment *alignment, vector<int> &savePermCol, vector<int> &permCol, vector<int> &compressedPermCol)
+void initializeNewColumn(IQTree *tree, Alignment *alignment, vector<int> &rotatedPermutationColumn)
 {
-	permCol.resize(savePermCol.size());
-	compressedPermCol.resize(savePermCol.size());
-	if (alignment->existingSamples.size())
+	int nsite = rotatedPermutationColumn.size();
+	vector<int> permCol(nsite);
+	vector<int> compressedPermCol(nsite);
+	if (alignment->existingSampleMutations.size())
 	{
-		for (int j = 0; j < savePermCol.size(); ++j)
+		for (int site = 0; site < nsite; ++site)
 		{
-			int p = savePermCol[j];
-			compressedPermCol[j] = alignment->existingSamples[0][p].compressed_position;
-			permCol[j] = alignment->existingSamples[0][p].position;
+			int col = rotatedPermutationColumn[site];
+			compressedPermCol[site] = alignment->existingSampleMutations[0][col].compressed_position;
+			permCol[site] = alignment->existingSampleMutations[0][col].position;
 		}
 	}
 	alignment->ungroupSitePattern();
@@ -196,22 +197,20 @@ int readVCFFile(IQTree *tree, Alignment **alignment, Params &params)
 	tree->setAlignment(*alignment);
 	tree->aln = *alignment;
 
-	vector<int> permCol = (*alignment)->findRotatedColumnPermutation();
-	vector<int> savePermCol = permCol;
-	vector<int> compressedPermCol = permCol;
-	initialize(tree, *alignment, savePermCol, permCol, compressedPermCol);
+	vector<int> rotatedColumnPermutation = (*alignment)->findRotatedColumnPermutation();
+	initializeNewColumn(tree, *alignment, rotatedColumnPermutation);
 
 	while (true)
 	{
-		int numColumn = (*alignment)->readPartialVCF(in, params.sequence_type, savePermCol, params.numStartRow, totalColumn, 8);
-		if (numColumn == 0)
+		int numProcessedColumn = (*alignment)->readPartialVCF(in, params.sequence_type, rotatedColumnPermutation, params.numStartRow, totalColumn, 8);
+		if (numProcessedColumn == 0)
 		{
+			// Process all columns
 			break;
 		}
-
 		tree->clearAllPartialLH();
-		totalColumn += numColumn;
-		initialize(tree, *alignment, savePermCol, permCol, compressedPermCol);
+		totalColumn += numProcessedColumn;
+		initializeNewColumn(tree, *alignment, rotatedColumnPermutation);
 	}
 
 	in.close();
@@ -244,11 +243,11 @@ void placeNewSamplesOntoExistingTree(Params &params)
 	tree->add_row = false;
 
 	cout << "Tree parsimony after init mutations: " << tree->computeParsimonyScoreMutation() << '\n';
-	int numSample = (int)alignment->missingSamples.size();
+	int numSample = (int)alignment->missingSampleMutations.size();
 	vector<MutationNode> missingSamples(numSample);
-	for (int i = 0; i < (int)alignment->missingSamples.size(); ++i)
+	for (int i = 0; i < (int)alignment->missingSampleMutations.size(); ++i)
 	{
-		missingSamples[i].mutations = alignment->missingSamples[i];
+		missingSamples[i].mutations = alignment->missingSampleMutations[i];
 		missingSamples[i].name = alignment->newSequenceNames[i];
 	}
 	numSample = min(numSample, params.numAddRow);
