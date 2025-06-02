@@ -236,15 +236,12 @@ void placeNewSamplesOntoExistingTree(Params &params)
 	cout << "Tree parsimony after init mutations: " << tree->computeParsimonyScoreMutation() << '\n';
 
 	cout << "\n========== Start placement core ==========\n";
-	int numSample = (int)alignment->missingSampleMutations.size();
-	numSample = min(numSample, params.num_missing_sample);
+	int numSample = min((int)alignment->missingSampleMutations.size(), params.num_missing_sample);
 
 	auto startTime = getCPUTime();
-
 	for (int i = 0; i < numSample; ++i)
 	{
 		vector<pair<PhyloNode *, PhyloNeighbor *>> bfs = tree->breadth_first_expansion();
-
 		int totalNodes = (int)bfs.size();
 		CandidateNode inp;
 		int bestSetDifference = INF;
@@ -264,7 +261,7 @@ void placeNewSamplesOntoExistingTree(Params &params)
 		inp.excess_mutations = &excessMutations;
 		inp.has_unique = &bestNodeHasUnique;
 		inp.node_has_unique = &(nodeHasUnique);
-		inp.best_j = &bestJ;
+		inp.best_index = &bestJ;
 
 		tree->initDataCalculatePlacementMutation(inp);
 		tree->optimizedCalculatePlacementMutation(inp, 0, true);
@@ -278,7 +275,7 @@ void placeNewSamplesOntoExistingTree(Params &params)
 			}
 		}
 		*inp.best_set_difference = INF;
-		inp.j = bestJ;
+		inp.index = bestJ;
 		inp.node = bfs[bestJ].first;
 		inp.node_branch = bfs[bestJ].second;
 		tree->calculatePlacementMutation(inp, false, true);

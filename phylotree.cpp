@@ -5692,11 +5692,11 @@ void PhyloTree::printTransMatrices(Node *node, Node *dad)
 void PhyloTree::allocateMutationMemory(int num_column)
 {
     cur_missing_sample_mutations.resize(num_column);
-	cur_ancestral_mutations.resize(num_column);
-	visited_missing_sample_mutations.resize(num_column);
-	visited_ancestral_mutations.resize(num_column);
-	cur_excess_mutations.resize(num_column);
-	visited_excess_mutations.resize(num_column);
+    cur_ancestral_mutations.resize(num_column);
+    visited_missing_sample_mutations.resize(num_column);
+    visited_ancestral_mutations.resize(num_column);
+    cur_excess_mutations.resize(num_column);
+    visited_excess_mutations.resize(num_column);
 }
 
 void PhyloTree::computePartialMutation(UINT *states_dad, vector<int> &perm_col, vector<int> &compressed_perm_col, PhyloNeighbor *dad_branch, PhyloNode *dad)
@@ -6288,13 +6288,7 @@ void PhyloTree::calculatePlacementMutation(CandidateNode &input, bool compute_pa
                 }
             }
         }
-        if (found)
-        {
-        }
-        else if (!found_pos && has_ref)
-        {
-        }
-        else
+        if (!found && (found_pos || !has_ref))
         {
 
             Mutation m;
@@ -6354,16 +6348,7 @@ void PhyloTree::calculatePlacementMutation(CandidateNode &input, bool compute_pa
                 }
             }
         }
-        if (found)
-        {
-        }
-        else if (!found_pos && !m1.is_masked() && (anc_nuc == m1.ref_nuc))
-        {
-        }
-        else if (found_pos && !found)
-        {
-        }
-        else
+        if (!found && !found_pos && (m1.is_masked() || (anc_nuc != m1.ref_nuc)))
         {
             Mutation m;
             m.position = m1.position;
@@ -6401,25 +6386,25 @@ void PhyloTree::calculatePlacementMutation(CandidateNode &input, bool compute_pa
     {
         *input.best_set_difference = set_difference;
         *input.best_node_num_leaves = num_leaves;
-        *input.best_j = input.j;
+        *input.best_index = input.index;
         *input.has_unique = has_unique;
         *input.best_distance = input.distance;
-        (*input.node_has_unique)[input.j] = has_unique;
+        (*input.node_has_unique)[input.index] = has_unique;
     }
     else if (set_difference == *input.best_set_difference)
     {
         if (((input.distance == *input.best_distance) &&
              ((num_leaves > *input.best_node_num_leaves) ||
-              ((num_leaves == *input.best_node_num_leaves) && (*input.best_j < input.j)))) ||
+              ((num_leaves == *input.best_node_num_leaves) && (*input.best_index < input.index)))) ||
             (input.distance < *input.best_distance))
         {
             *input.best_set_difference = set_difference;
             *input.best_node_num_leaves = num_leaves;
-            *input.best_j = input.j;
+            *input.best_index = input.index;
             *input.has_unique = has_unique;
             *input.best_distance = input.distance;
         }
-        (*input.node_has_unique)[input.j] = has_unique;
+        (*input.node_has_unique)[input.index] = has_unique;
     }
 }
 
@@ -6605,16 +6590,7 @@ void PhyloTree::optimizedCalculatePlacementMutation(CandidateNode &input, int se
                     }
                 }
             }
-            if (found)
-            {
-            }
-            else if (!found_pos && has_ref)
-            {
-            }
-            else if (found_pos && !found)
-            {
-            }
-            else
+            if (!found && !has_ref)
             {
                 Mutation m;
                 m.position = m1.position;
@@ -6666,13 +6642,7 @@ void PhyloTree::optimizedCalculatePlacementMutation(CandidateNode &input, int se
                 }
             }
         }
-        if (found)
-        {
-        }
-        else if (!found_pos && !m1.is_masked() && (anc_nuc == m1.ref_nuc))
-        {
-        }
-        else
+        if (!found && (found_pos || m1.is_masked() || (anc_nuc != m1.ref_nuc)))
         {
             eraseMutation(erased_excess_mutation, m1, set_difference);
             Mutation m;
@@ -6735,8 +6705,6 @@ void PhyloTree::optimizedCalculatePlacementMutation(CandidateNode &input, int se
             addMutation(added_excess_mutation, m1, 1, set_difference);
         }
     }
-    common_mutations.clear();
-    diff_mutations.clear();
 
     PhyloNode *node = input.node;
     PhyloNode *dad = node->dad;
