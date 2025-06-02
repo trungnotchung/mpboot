@@ -13,6 +13,7 @@
 #define PHYLONODE_H
 
 #include "node.h"
+#include "mutation.h"
 
 typedef short int UBYTE;
 
@@ -21,7 +22,8 @@ A neighbor in a phylogenetic tree
 
     @author BUI Quang Minh, Steffen Klaere, Arndt von Haeseler <minh.bui@univie.ac.at>
  */
-class PhyloNeighbor : public Neighbor {
+class PhyloNeighbor : public Neighbor
+{
     friend class PhyloNode;
     friend class PhyloTree;
     friend class IQTree;
@@ -37,11 +39,13 @@ public:
 
         @param alength length of branch
      */
-    PhyloNeighbor(Node *anode, double alength) : Neighbor(anode, alength) {
+    PhyloNeighbor(Node *anode, double alength) : Neighbor(anode, alength)
+    {
         partial_lh = NULL;
         partial_lh_computed = 0;
         lh_scale_factor = 0.0;
         partial_pars = NULL;
+        mutations.clear();
     }
 
     /**
@@ -50,24 +54,29 @@ public:
         @param alength length of branch
         @param aid branch ID
      */
-    PhyloNeighbor(Node *anode, double alength, int aid) : Neighbor(anode, alength, aid) {
+    PhyloNeighbor(Node *anode, double alength, int aid) : Neighbor(anode, alength, aid)
+    {
         partial_lh = NULL;
         partial_lh_computed = 0;
         lh_scale_factor = 0.0;
         partial_pars = NULL;
+        mutations.clear();
+        canMove = 0;
     }
 
     /**
         tell that the partial likelihood vector is not computed
      */
-    inline void clearPartialLh() {
+    inline void clearPartialLh()
+    {
         partial_lh_computed = 0;
     }
 
     /**
      *  tell that the partial likelihood vector is computed
      */
-    inline void unclearPartialLh() {
+    inline void unclearPartialLh()
+    {
         partial_lh_computed = 1;
     }
 
@@ -77,8 +86,32 @@ public:
      */
     void clearForwardPartialLh(Node *dad);
 
-private:
 
+    /**
+     * All mutations on this branch
+     */
+    std::vector<Mutation> mutations;
+
+    /**
+     * Number of leaves in the subtree rooted at this node
+     */
+    int num_leaves;
+
+    /**
+     * Distance to the root
+     */
+    int distance;
+
+    /**
+     * Clear all mutations on this branch
+     */
+    void clear_mutations();
+
+    /**
+     * Add a mutation to this branch
+     */
+    void add_mutation(Mutation mut);
+private:
     /**
         true if the partial likelihood was computed
      */
@@ -104,6 +137,10 @@ private:
      */
     UINT *partial_pars;
 
+    /**
+     * check if this branch can be movedor do SPR
+     */
+    int canMove;
 };
 
 /**
@@ -111,7 +148,8 @@ A node in a phylogenetic tree
 
     @author BUI Quang Minh, Steffen Klaere, Arndt von Haeseler <minh.bui@univie.ac.at>
  */
-class PhyloNode : public Node {
+class PhyloNode : public Node
+{
     friend class PhyloTree;
 
 public:
@@ -145,6 +183,12 @@ public:
      */
     void init();
 
+    void setMissingNode(int index);
+
+    bool checkMissingNode();
+
+    int getMissingIndex();
+
     /**
         add a neighbor
         @param node the neighbor node
@@ -152,8 +196,6 @@ public:
         @param id branch ID
      */
     virtual void addNeighbor(Node *node, double length, int id = -1);
-
-
 
     /**
         tell that all partial likelihood vectors below this node are not computed
@@ -164,13 +206,45 @@ public:
         tell that all partial likelihood vectors (in reverse direction) below this node are not computed
      */
     void clearReversePartialLh(PhyloNode *dad);
-};
 
+    PhyloNode *dad;
+
+    int missingIndex;
+};
 
 /**
     Node vector
  */
-typedef vector<PhyloNode*> PhyloNodeVector;
+typedef vector<PhyloNode *> PhyloNodeVector;
 
+class CandidateNode
+{
+public:
+    PhyloNode *node;
+    PhyloNeighbor *node_branch;
+    std::vector<Mutation> *missing_sample_mutations;
+
+    int *best_set_difference;
+    int *set_difference;
+    size_t *best_node_num_leaves;
+    size_t distance;
+    size_t *best_distance;
+    size_t index;
+    size_t *best_index;
+    size_t *num_best;
+    PhyloNode *best_node;
+    PhyloNeighbor *best_node_branch;
+
+    std::vector<bool> *node_has_unique;
+    std::vector<size_t> *best_j_vec;
+
+    bool *has_unique;
+
+    std::vector<Mutation> *excess_mutations;
+
+    CandidateNode()
+    {
+    }
+};
 
 #endif

@@ -16,6 +16,7 @@
 #include "pattern.h"
 #include "ncl/ncl.h"
 #include "tools.h"
+#include "mutation.h"
 
 // IMPORTANT: refactor STATE_UNKNOWN
 //const char STATE_UNKNOWN = 126;
@@ -58,7 +59,7 @@ public:
             @param sequence_type type of the sequence, either "BIN", "DNA", "AA", or NULL
             @param intype (OUT) input format of the file
      */
-    Alignment(char *filename, char *sequence_type, InputType &intype);
+    Alignment(char *filename, char *sequence_type, InputType &intype, int numStartRow = INT_MAX);
 
     /**
             destructor
@@ -608,6 +609,78 @@ public:
      */
     int n_informative_patterns;
     int n_informative_sites;
+
+    /**
+     * Missing sample names
+     */
+    vector<string> missingSampleNames;
+
+    /**
+     * Missing sample sequences
+     */
+    vector<string> missingSampleSequences;
+
+    /**
+     * Initial column state
+     * Using for finding rotated column permutation
+     */
+    vector<string> initialColumnState;
+
+    /**
+     * Missing sample mutations
+     */
+    vector<vector<Mutation>> missingSampleMutations;
+
+    /**
+     * Existing sample mutations
+     */
+    vector<vector<Mutation>> existingSampleMutations;
+
+    /**
+     * Reference nucleotides
+     */
+    vector<int> reference_nuc;
+
+    /**
+     * Replace current alignment with new sequences
+     */
+    void updateAlignmentNewSequences(const vector<string> &newSeqs, const vector<int> &permCol);
+
+    /**
+     * Add a new sequence to the alignment
+     */
+    void addToAlignmentNewSequence(const string &newName, const string &newSeq, const vector<int> &permCol);
+
+    /**
+     * Add new sequences to the alignment
+     */
+    void addToAlignmentNewSequences(const vector<string> &newNames, const vector<string> &newSeqs, const vector<int> &permCol);
+
+    /**
+     * Get mutation from state
+     */
+    char getMutationFromState(char state);
+
+    /**
+     * Get state from mutation
+     */
+    int getStateFromMutation(int nuc);
+
+    /**
+     * Find rotated column permutation
+     */
+    vector<int> findRotatedColumnPermutation();
+
+    /**
+     * Read partial VCF file
+     * Using for reducing memory usage
+     */
+    int readPartialVCF(ifstream &in, char *sequence_type, vector<int> &permCol, int numStartRow, int startIndex, int numColumn);
+
+    /**
+     * Read VCF file
+     */
+    int readVCF(char *filename, char *sequence_type, int numStartRow);
 
 protected:
 

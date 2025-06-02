@@ -280,6 +280,121 @@ public:
     virtual ~PhyloTree();
 
     /**
+     * Add a row to the tree
+     */
+    bool add_row;
+
+    /**
+     * Save the states of the root node
+     */
+    UINT *root_states;
+
+    /**
+     * Root mutations
+     */
+    vector<Mutation> root_mutations;
+
+    /**
+     * Allocate memory for mutation data
+     */
+    void allocateMutationMemory(int num_column);
+
+    /**
+     * Initialize mutation data for MAT
+     */
+    void initMutation(vector<int> &perm_col, vector<int> &compressed_perm_col);
+
+    /**
+     * Compute mutation for a branch
+     */
+    void computeMutationBranch(vector<int> &perm_col, vector<int> &compressed_perm_col, PhyloNeighbor *dad_branch, PhyloNode *dad, int *branch_subst = NULL);
+
+    /**
+     * Compute partial mutation for a branch
+     */
+    void computePartialMutation(UINT *states_dad, vector<int> &perm_col, vector<int> &compressed_perm_col, PhyloNeighbor *dad_branch, PhyloNode *dad);
+
+    /**
+     * Compute parsimony score using mutation
+     */
+    int computeParsimonyScoreMutation();
+
+    /**
+     * Compute parsimony score for a branch using mutation
+     */
+    int computeParsimonyBranchMutation(PhyloNeighbor *dad_branch, PhyloNode *dad, int *branch_subst = NULL);
+
+    /**
+     * Compute partial parsimony score for a branch using mutation
+     */
+    int computePartialParsimonyMutation(PhyloNeighbor *dad_branch, PhyloNode *dad);
+
+    /**
+     * Compute the breadth-first expansion of the vertices of the tree
+     */
+    std::vector<std::pair<PhyloNode *, PhyloNeighbor *>> breadth_first_expansion();
+
+    std::vector<Mutation> cur_excess_mutations, cur_missing_sample_mutations, cur_ancestral_mutations;
+    std::vector<int> visited_missing_sample_mutations, visited_ancestral_mutations;
+    std::vector<int> visited_excess_mutations;
+    int timer_optimized, timer_regular;
+
+    /**
+     * Calculate placement mutation for a candidate node
+     */
+    void calculatePlacementMutation(CandidateNode &input, bool compute_parsimony_scores = false, bool compute_vecs = false);
+
+    /**
+     * Initialize data for calculatePlacementMutation
+     */
+    void initDataCalculatePlacementMutation(CandidateNode &inp);
+
+    /**
+     * Erase a mutation from the candidate node
+     */
+    void eraseMutation(vector<Mutation> &erase_excess_mutations, Mutation m, int &set_difference);
+
+    /**
+     * Add a mutation to the candidate node
+     */
+    void addMutation(vector<Mutation> &added_excess_mutations, Mutation m, int diff, int &set_difference);
+
+    /**
+     * Optimize the placement mutation for a candidate node
+     */
+    void optimizedCalculatePlacementMutation(CandidateNode &input, int set_difference = 0, bool firstNode = false);
+
+    /**
+     * Add a new sample to the tree
+     */
+    void addNewSample(PhyloNode *best_node, PhyloNeighbor *best_node_branch, std::vector<Mutation> node_excess_mutations, int index, std::string name);
+
+    /**
+     * Check mutations at a given position
+     */
+    void checkMutation(vector<int> &pos);
+
+    /**
+     * Check mutations on a branch
+     */
+    void checkMutationBranch(vector<int> &pos, PhyloNeighbor *dad_branch, PhyloNode *dad, int *branch_subst = NULL);
+
+    /**
+     * Check partial mutation on a branch
+     */
+    string checkPartialMutation(vector<int> &pos, PhyloNeighbor *dad_branch, PhyloNode *dad);
+
+    /**
+     * Find a node by name
+     */
+    PhyloNode *findNode(PhyloNode *node, PhyloNode *dad, string name);
+
+    /**
+     * Find a node by name
+     */
+    PhyloNode *findNode(string name);
+
+    /**
             copy the phylogenetic tree structure into this tree, override to take sequence names
             in the alignment into account
             @param tree the tree to copy

@@ -86,7 +86,16 @@
 	#endif
 #endif /* HAVE_GETTIMEOFDAY */
 
-
+/** 
+ * @return CPU memory usage since program was started
+ */
+__inline uint64_t getMemory() {
+#ifdef HAVE_GETRUSAGE
+	struct rusage usage;
+    getrusage(RUSAGE_SELF, &usage);
+    return usage.ru_maxrss;
+#endif
+}
 
 /**
  * @return CPU time in seconds since program was started (corrrect up to micro-seconds)

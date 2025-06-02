@@ -4538,3 +4538,153 @@ void IQTree::reinsertIdenticalSeqs(Alignment *orig_aln, StrVector &removed_seqs,
     deleteAllPartialLh();
     clearAllPartialLH();
 }
+
+void IQTree::getLeafName(vector<string> &leafName)
+{
+    getLeafName(root, root->neighbors[0]->node, leafName);
+    getLeafName(root->neighbors[0]->node, root, leafName);
+}
+
+void IQTree::getLeafName(Node *node, Node *dad, vector<string> &leafName)
+{
+    if (node->isLeaf())
+    {
+        leafName.push_back(node->name);
+        return;
+    }
+    FOR_NEIGHBOR_IT(node, dad, it)
+    {
+        getLeafName((*it)->node, node, leafName);
+        if (node->name == "")
+        {
+            node->name = (*it)->node->name;
+        }
+        else
+        {
+            node->name = min(node->name, (*it)->node->name);
+        }
+    }
+}
+
+void IQTree::assignRoot(string &rootName)
+{
+    if (root->name == rootName)
+        return;
+    assignRoot(root->neighbors[0]->node, root, rootName);
+}
+
+bool IQTree::assignRoot(Node *node, Node *dad, string &rootName)
+{
+    if (node->isLeaf() && node->name == rootName)
+    {
+        root = node;
+        return true;
+    }
+    FOR_NEIGHBOR_IT(node, dad, it)
+    {
+        if (assignRoot((*it)->node, node, rootName))
+        {
+            return true;
+        }
+    }
+}
+
+int IQTree::initInfoNode(vector<string> &leafName)
+{
+    PhyloNode *node1 = (PhyloNode *)root;
+    PhyloNode *node2 = (PhyloNode *)root->neighbors[0]->node;
+
+    int lf = initInfoNode(node1, node2, leafName);
+    int rg = initInfoNode(node2, node1, leafName);
+    return lf + rg;
+}
+
+int IQTree::initInfoNode(PhyloNode *node, PhyloNode *dad, vector<string> &leafName)
+{
+    if (node->isLeaf())
+    {
+        int k = lower_bound(leafName.begin(), leafName.end(), node->name) - leafName.begin();
+        if (k < leafName.size() && leafName[k] == node->name)
+        {
+            node->setMissingNode(-1);
+            return 1;
+        }
+        else
+        {
+            node->setMissingNode(1);
+            return 0;
+        }
+    }
+
+    int sum = 0;
+    bool check = true;
+    FOR_NEIGHBOR_IT(node, dad, it)
+    {
+        int tmp = initInfoNode((PhyloNode *)(*it)->node, node, leafName);
+        if (tmp == 0)
+        {
+            check = false;
+        }
+        else
+        {
+            if (node->name == "")
+            {
+                node->name = (*it)->node->name;
+            }
+            else
+            {
+                node->name = min(node->name, (*it)->node->name);
+            }
+        }
+        sum += tmp;
+    }
+
+    if (check)
+    {
+        node->setMissingNode(-1);
+    }
+    else
+    {
+        node->setMissingNode(1);
+    }
+    return sum;
+}
+
+bool IQTree::compareTree(IQTree *anotherTree)
+{
+    if (root->name != anotherTree->root->name)
+        return false;
+    return compareTree((PhyloNode *)root, NULL, anotherTree->root, NULL);
+}
+
+bool IQTree::compareTree(PhyloNode *node1, PhyloNode *dad1, Node *node2, Node *dad2)
+{
+    bool check = true;
+    FOR_NEIGHBOR_IT(node1, dad1, it1)
+    {
+        PhyloNode *child1 = (PhyloNode *)(*it1)->node;
+        if (!child1->checkMissingNode())
+        {
+            bool found = false;
+            FOR_NEIGHBOR_IT(node2, dad2, it2)
+            {
+                Node *child2 = (*it2)->node;
+                if (child1->name == child2->name)
+                {
+                    found = true;
+                    check &= compareTree(child1, node1, child2, node2);
+                    break;
+                }
+            }
+            if (!found)
+            {
+                return false;
+            }
+        }
+        else
+        {
+            check &= compareTree(child1, node1, node2, dad2);
+        }
+    }
+    return check;
+}

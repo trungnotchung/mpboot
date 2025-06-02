@@ -664,6 +664,45 @@ protected:
     int k_represent;
 
 public:
+    /**
+     * Get all leaf names of the tree.
+    */    
+    void getLeafName(vector<string> &leafName);
+
+    /**
+     * Get all leaf names of the tree rooted at node.
+    */    
+    void getLeafName(Node *node, Node *dad, vector<string>& leafName);
+
+    /**
+     * Assign root with given name.
+    */
+    void assignRoot(string &rootName);
+
+    /**
+     * Assign root with given name.
+    */
+    bool assignRoot(Node *node, Node *dad, string &rootName);
+
+    /**
+     * Init info which node is original node, which node is added node.
+    */
+    int initInfoNode(vector<string> &leafName);
+
+    /**
+     * Init info which node is original node, which node is added node.
+    */
+    int initInfoNode(PhyloNode *node, PhyloNode *dad, vector<string> &leafName);
+
+    /**
+     * Compare two trees.
+    */
+    bool compareTree(IQTree *anotherTree);
+
+    /**
+     * Compare two trees rooted at node1 and node2.
+    */
+    bool compareTree(PhyloNode *node1, PhyloNode *dad1, Node *node2, Node *dad2);
 
     /**
      *  @brief: optimize model parameters on the current tree
