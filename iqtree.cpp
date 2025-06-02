@@ -643,7 +643,7 @@ void IQTree::initializePLL(Params &params)
     pllAttr.saveMemory = PLL_FALSE;
     pllAttr.useRecom = PLL_FALSE;
     pllAttr.randomNumberSeed = params.ran_seed;
-    pllAttr.numAddRows = params.numAddRow;
+    pllAttr.numAddRows = params.num_missing_sample;
 #ifdef _OPENMP
     pllAttr.numberOfThreads = params.num_threads; /* This only affects the pthreads version */
 #else
@@ -2500,96 +2500,6 @@ string IQTree::doNNISearch(int &nniCount, int &nniSteps)
         treeString = getTreeString();
     }
 
-    return treeString;
-}
-
-string IQTree::ppRunOriginalTbr()
-{
-    if (pllInst)
-    {
-        pllDestroyInstance(pllInst);
-        pllInst = NULL;
-    }
-    if (pllPartitions)
-    {
-        myPartitionsDestroy(pllPartitions);
-        pllPartitions = NULL;
-    }
-    if (pllAlignment)
-    {
-        pllAlignmentDataDestroy(pllAlignment);
-        pllAlignment = NULL;
-    }
-    PatternComp pcomp;
-    sort(aln->begin(), aln->end(), pcomp);
-    aln->updateSitePatternAfterOptimized();
-
-    initializePLL(*params);
-
-    pllNewickTree *btree = pllNewickParseString(getTreeString().c_str());
-    assert(btree != NULL);
-    pllTreeInitTopologyNewick(pllInst, btree, PLL_FALSE);
-    pllNewickParseDestroy(&btree);
-
-    assert(pllInst != NULL && pllPartitions != NULL);
-    printf("Tbr start...\n");
-    printf("Tbr radius: %d %d\n", params->tbr_mintrav, params->tbr_maxtrav);
-    int scoreAfterRunTbr;
-    if (!params->restructureTree)
-        scoreAfterRunTbr = myPllOptimizeTbrParsimony(pllInst, pllPartitions, params->spr_mintrav, params->spr_maxtrav, this);
-    else
-        scoreAfterRunTbr = pllOptimizeTbrParsimony(pllInst, pllPartitions, params->spr_mintrav, params->spr_maxtrav, this);
-    printf("Score after running tbr: %d\n", scoreAfterRunTbr);
-
-    pllTreeToNewick(pllInst->tree_string, pllInst, pllPartitions, pllInst->start->back, PLL_FALSE,
-                    PLL_TRUE, 0, 0, 0, PLL_SUMMARIZE_LH, 0, 0);
-    string treeString = string(pllInst->tree_string);
-    readTreeString(treeString);
-    return treeString;
-}
-
-string IQTree::ppRunOriginalSpr()
-{
-    if (pllInst)
-    {
-        pllDestroyInstance(pllInst);
-        pllInst = NULL;
-    }
-    if (pllPartitions)
-    {
-        myPartitionsDestroy(pllPartitions);
-        pllPartitions = NULL;
-    }
-    if (pllAlignment)
-    {
-        pllAlignmentDataDestroy(pllAlignment);
-        pllAlignment = NULL;
-    }
-    PatternComp pcomp;
-    sort(aln->begin(), aln->end(), pcomp);
-    aln->updateSitePatternAfterOptimized();
-
-    initializePLL(*params);
-
-    pllNewickTree *btree = pllNewickParseString(getTreeString().c_str());
-    assert(btree != NULL);
-    pllTreeInitTopologyNewick(pllInst, btree, PLL_FALSE);
-    pllNewickParseDestroy(&btree);
-
-    assert(pllInst != NULL && pllPartitions != NULL);
-    printf("Spr start...\n");
-    printf("Spr radius: %d %d\n", params->spr_mintrav, params->spr_maxtrav);
-    int scoreAfterRunSpr;
-    if (!params->restructureTree)
-        scoreAfterRunSpr = myPllOptimizeSprParsimony(pllInst, pllPartitions, params->spr_mintrav, params->spr_maxtrav, this);
-    else
-        scoreAfterRunSpr = pllOptimizeSprParsimony(pllInst, pllPartitions, params->spr_mintrav, params->spr_maxtrav, this);
-    printf("Score after running spr: %d\n", scoreAfterRunSpr);
-
-    pllTreeToNewick(pllInst->tree_string, pllInst, pllPartitions, pllInst->start->back, PLL_FALSE,
-                    PLL_TRUE, 0, 0, 0, PLL_SUMMARIZE_LH, 0, 0);
-    string treeString = string(pllInst->tree_string);
-    readTreeString(treeString);
     return treeString;
 }
 
@@ -5339,7 +5249,7 @@ int IQTree::addRemainRowSPR(const vector<string> &remainRowName, const vector<st
     pllTreeInitTopologyNewick(pllInst, newick, PLL_FALSE);
     pllNewickParseDestroy(&newick);
     _allocateParsimonyDataStructures(pllInst, pllPartitions, false);
-    pllInst->ntips = params.numStartRow;
+    pllInst->ntips = params.num_existing_sample;
     int score = _pllAddMoreRow(pllInst, pllPartitions);
     _pllFreeParsimonyDataStructures(pllInst, pllPartitions);
     delete newick;

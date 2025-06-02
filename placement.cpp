@@ -190,7 +190,7 @@ int readVCFFile(IQTree *tree, Alignment **alignment, Params &params)
 
 	// Read first 12 lines and create tree alignment
 	int totalColumn = readInitialAlignment(in, "temp.vcf", 12) - 1; // Read first 12 lines and write to temp.vcf
-	*alignment = new Alignment("temp.vcf", params.sequence_type, params.intype, params.numStartRow);
+	*alignment = new Alignment("temp.vcf", params.sequence_type, params.intype, params.num_existing_sample);
 	(*alignment)->ungroupSitePattern();
 	std::remove("temp.vcf");
 	tree->setAlignment(*alignment);
@@ -201,7 +201,7 @@ int readVCFFile(IQTree *tree, Alignment **alignment, Params &params)
 
 	while (true)
 	{
-		int numProcessedColumn = (*alignment)->readPartialVCF(in, params.sequence_type, rotatedColumnPermutation, params.numStartRow, totalColumn, 8);
+		int numProcessedColumn = (*alignment)->readPartialVCF(in, params.sequence_type, rotatedColumnPermutation, params.num_existing_sample, totalColumn, 8);
 		if (numProcessedColumn == 0)
 		{
 			// Process all columns
@@ -237,7 +237,7 @@ void placeNewSamplesOntoExistingTree(Params &params)
 
 	cout << "\n========== Start placement core ==========\n";
 	int numSample = (int)alignment->missingSampleMutations.size();
-	numSample = min(numSample, params.numAddRow);
+	numSample = min(numSample, params.num_missing_sample);
 
 	auto startTime = getCPUTime();
 
