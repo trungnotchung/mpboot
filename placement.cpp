@@ -243,6 +243,7 @@ void placeNewSamplesOntoExistingTree(Params &params)
 	{
 		vector<pair<PhyloNode *, PhyloNeighbor *>> bfs = tree->breadth_first_expansion();
 		int totalNodes = (int)bfs.size();
+		
 		CandidateNode inp;
 		int bestSetDifference = INF;
 		size_t bestNodeNumLeaves = INF;
@@ -250,7 +251,7 @@ void placeNewSamplesOntoExistingTree(Params &params)
 		std::vector<Mutation> excessMutations;
 		std::vector<bool> nodeHasUnique(totalNodes, false);
 		bool bestNodeHasUnique = false;
-		size_t bestJ = 0;
+		size_t bestIndex = 0;
 
 		inp.best_set_difference = &bestSetDifference;
 		inp.best_node_num_leaves = &bestNodeNumLeaves;
@@ -261,7 +262,7 @@ void placeNewSamplesOntoExistingTree(Params &params)
 		inp.excess_mutations = &excessMutations;
 		inp.has_unique = &bestNodeHasUnique;
 		inp.node_has_unique = &(nodeHasUnique);
-		inp.best_index = &bestJ;
+		inp.best_index = &bestIndex;
 
 		tree->initDataCalculatePlacementMutation(inp);
 		tree->optimizedCalculatePlacementMutation(inp, 0, true);
@@ -270,16 +271,15 @@ void placeNewSamplesOntoExistingTree(Params &params)
 		{
 			if (inp.best_node == bfs[j].first)
 			{
-				bestJ = j;
-				break;
+				bestIndex = j;
 			}
 		}
 		*inp.best_set_difference = INF;
-		inp.index = bestJ;
-		inp.node = bfs[bestJ].first;
-		inp.node_branch = bfs[bestJ].second;
+		inp.index = bestIndex;
+		inp.node = bfs[bestIndex].first;
+		inp.node_branch = bfs[bestIndex].second;
 		tree->calculatePlacementMutation(inp, false, true);
-		tree->addNewSample(bfs[bestJ].first, bfs[bestJ].second, excessMutations, i, alignment->missingSampleNames[i]);
+		tree->addNewSample(bfs[bestIndex].first, bfs[bestIndex].second, excessMutations, i, alignment->missingSampleNames[i]);
 	}
 	cout << "New tree's parsimony score: " << tree->computeParsimonyScoreMutation() << '\n';
 	cout << "Time: " << fixed << setprecision(3) << (double)(getCPUTime() - startTime) << " seconds\n";
