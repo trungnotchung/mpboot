@@ -213,27 +213,32 @@ bool fileExists(string strFilename)
 	return (blnReturn);
 }
 
-void convert_int_pair(const char *str, int &x, int &y) throw(string) {
-    // Must be 2 numbers separated by a colon
-    // Save first number to x and second to y
-    int len = strlen(str), i;
-    for (i = 0; i < len; i++) {
-        if (str[i] != ':' && (str[i] < '0' || str[i] > '9')) {
-            string err = "Expecting 2 postive integers separated by 1 colon, but found \"";
-            err += str[i];
-            err += "\" instead";
-            throw err;
-        }
-    }
-    x = 0;
-    y = 0;
-    for (i = 0; i < len && str[i] != ':'; i++) {
-        x = x * 10 + (str[i] - '0');
-    }
-    i++;
-    for (; i < len; i++) {
-        y = y * 10 + (str[i] - '0');
-    }
+void convert_int_pair(const char *str, int &x, int &y) throw(string)
+{
+	// Must be 2 numbers separated by a colon
+	// Save first number to x and second to y
+	int len = strlen(str), i;
+	for (i = 0; i < len; i++)
+	{
+		if (str[i] != ':' && (str[i] < '0' || str[i] > '9'))
+		{
+			string err = "Expecting 2 postive integers separated by 1 colon, but found \"";
+			err += str[i];
+			err += "\" instead";
+			throw err;
+		}
+	}
+	x = 0;
+	y = 0;
+	for (i = 0; i < len && str[i] != ':'; i++)
+	{
+		x = x * 10 + (str[i] - '0');
+	}
+	i++;
+	for (; i < len; i++)
+	{
+		y = y * 10 + (str[i] - '0');
+	}
 }
 
 int convert_int(const char *str) throw(string)
@@ -657,34 +662,11 @@ void get2RandNumb(const int size, int &first, int &second)
 void parseArg(int argc, char *argv[], Params &params)
 {
 	int cnt;
-	params.restructureTree = false;
-	params.spr_test = false;
-    params.spr_tbr = false;
-    params.tbr_alternate = -1;
-    params.spr_alternate = -1;
-    params.tbr_spr = false;
-    params.tbr_init = false;
-    params.tbr_test_draw = false;
-    params.tbr_test = false;
-    params.tbr_pars = false;
-    params.tbr_mintrav = 1;
-    params.tbr_maxtrav = 5;
-    params.tbr_insert_nni = false;
-    params.tbr_traverse_ver1 = false;
-    params.tbr_restore_ver2 = false;
-
-	params.ppoptspr = false;
-	params.ppopttbr = false;
-	params.analyze_alignment = false;
-	params.pporigspr = false;
-	params.pporigtbr = false;
-	params.numStartRow = 1000000000;
-	params.numAddRow = 0;
+	params.num_existing_sample = 1000000000;
+	params.num_missing_sample = 0;
 	params.mutation_tree_file = NULL;
 	params.ppon = false;
 	params.pp_test_optimize = false;
-	params.tree_zip_file = NULL;
-	params.alignment_zip_file = NULL;
 	params.original_tree_file = NULL;
 	verbose_mode = VB_MIN;
 	params.tree_gen = NONE;
@@ -990,98 +972,6 @@ void parseArg(int argc, char *argv[], Params &params)
 #endif
 				continue;
 			}
-			if (strcmp(argv[cnt], "-restructure") == 0) {
-				params.restructureTree = true;
-				continue;
-			}
-			if (strcmp(argv[cnt], "-spr_tbr") == 0) {
-                params.spr_tbr = true;
-                continue;
-            }
-            if (strcmp(argv[cnt], "-tbr_spr") == 0) {
-                params.tbr_spr = true;
-                continue;
-            }
-            if (strcmp(argv[cnt], "-tbr_spr_alternate") == 0) {
-                cnt++;
-                if (cnt >= argc) {
-                    throw "Use -tbr_spr_alternate <num_tbr_iterations:num_spr_iterations>";
-                }
-                convert_int_pair(argv[cnt], params.tbr_alternate, params.spr_alternate);
-                continue;
-            }
-            if (strcmp(argv[cnt], "-spr_test") == 0) {
-                cnt++;
-                if (cnt >= argc)
-                    throw "Use -spr_test <file.treefile>";
-                params.spr_test = true;
-                params.user_file = argv[cnt];
-                continue;
-            }
-            if (strcmp(argv[cnt], "-tbr_init") == 0) {
-                params.tbr_init = true;
-                continue;
-            }
-            if (strcmp(argv[cnt], "-tbr_test_draw") == 0) {
-                params.tbr_test_draw = true;
-                continue;
-            }
-            if (strcmp(argv[cnt], "-tbr_test") == 0) {
-                cnt++;
-                if (cnt >= argc)
-                    throw "Use -tbr_test <file.treefile>";
-                params.tbr_test = true;
-                params.user_file = argv[cnt];
-                continue;
-            }
-            if (strcmp(argv[cnt], "-tbr_pars") == 0) {
-                params.tbr_pars = true;
-                continue;
-            }
-            if (strcmp(argv[cnt], "-tbr_mintrav") == 0) {
-                cnt++;
-                if (cnt >= argc)
-                    throw "Use -tbr_mintrav <mintrav>";
-                params.tbr_mintrav = convert_int(argv[cnt]);
-                continue;
-            }
-            if (strcmp(argv[cnt], "-tbr_maxtrav") == 0) {
-                cnt++;
-                if (cnt >= argc)
-                    throw "Use -tbr_maxtrav <maxtrav>";
-                params.tbr_maxtrav = convert_int(argv[cnt]);
-                continue;
-            }
-
-            if (strcmp(argv[cnt], "-tbr_insert_nni") == 0) {
-                params.tbr_insert_nni = true;
-                continue;
-            }
-            
-            if (strcmp(argv[cnt], "-tbr_traverse_ver1") == 0) {
-                params.tbr_traverse_ver1 = true;
-                continue;
-            }
-
-            if (strcmp(argv[cnt], "-tbr_restore_ver2") == 0) {
-                params.tbr_restore_ver2 = true;
-                continue;
-            }
-			if (strcmp(argv[cnt], "-pp_opt_spr") == 0)
-			{
-				params.ppoptspr = true;				
-				continue;
-			}
-			if (strcmp(argv[cnt], "-pp_opt_tbr") == 0)
-			{
-				params.ppopttbr = true;
-				continue;
-			}
-			if (strcmp(argv[cnt], "-pp_test_optimize") == 0)
-			{
-				params.pp_test_optimize = true;
-				continue;
-			}
 			if (strcmp(argv[cnt], "-pp_origin") == 0)
 			{
 				cnt++;
@@ -1111,13 +1001,13 @@ void parseArg(int argc, char *argv[], Params &params)
 			if (strcmp(argv[cnt], "-pp_n") == 0)
 			{
 				cnt++;
-				params.numStartRow = convert_int(argv[cnt]);
+				params.num_existing_sample = convert_int(argv[cnt]);
 				continue;
 			}
 			if (strcmp(argv[cnt], "-pp_k") == 0)
 			{
 				cnt++;
-				params.numAddRow = convert_int(argv[cnt]);
+				params.num_missing_sample = convert_int(argv[cnt]);
 				continue;
 			}
 			if (strcmp(argv[cnt], "-pp_tree") == 0)

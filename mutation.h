@@ -59,16 +59,4 @@ struct Mutation
         }
     }
 };
-
-class MutationNode
-{
-    public:
-        std::string name;
-        std::vector<Mutation> mutations;
-
-        MutationNode();
-
-        void add_mutation(Mutation mut);
-        void clear_mutations();
-};
 #endif

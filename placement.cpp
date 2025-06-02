@@ -1,40 +1,12 @@
 #ifdef HAVE_CONFIG_H
 #include <config.h>
 #endif
-#include <iqtree_config.h>
-#include "phylotree.h"
-#include "phylosupertree.h"
-#include "phylosupertreeplen.h"
-#include "phyloanalysis.h"
-#include "alignment.h"
-#include "superalignment.h"
-#include "iqtree.h"
-#include "model/modelgtr.h"
-#include "model/modeldna.h"
-#include "myreader.h"
-#include "model/rateheterogeneity.h"
-#include "model/rategamma.h"
-#include "model/rateinvar.h"
-#include "model/rategammainvar.h"
-// #include "modeltest_wrapper.h"
-#include "model/modelprotein.h"
-#include "model/modelbin.h"
-#include "model/modelcodon.h"
-#include "stoprule.h"
 
-#include "mtreeset.h"
-#include "mexttree.h"
-#include "model/ratemeyerhaeseler.h"
-#include "whtest_wrapper.h"
-#include "model/partitionmodel.h"
-#include "guidedbootstrap.h"
-#include "model/modelset.h"
-#include "timeutil.h"
-#include "parstree.h"
-#include "tinatree.h"
-#include "sprparsimony.h"
+#include "phylotree.h"
+#include "alignment.h"
+#include "iqtree.h"
+#include "mutation.h"
 #include "placement.h"
-#include <algorithm>
 
 void checkCorectTree(char *originTreeFile, char *newTreeFile)
 {
@@ -160,36 +132,36 @@ string ppRunOriginalSpr(Alignment *alignment, Params &params, string newickTree 
 	return newTreeString;
 }
 
-void initialize(IQTree *tree, Alignment *alignment, vector<int> &savePermCol, vector<int> &permCol, vector<int> &compressedPermCol)
+void initializeNewColumn(IQTree *tree, Alignment *alignment, vector<int> &rotatedPermutationColumn)
 {
-	permCol.resize(savePermCol.size());
-	compressedPermCol.resize(savePermCol.size());
-	if (alignment->existingSamples.size())
+	int nsite = rotatedPermutationColumn.size();
+	vector<int> permCol(nsite);
+	vector<int> compressedPermCol(nsite);
+	if (alignment->existingSampleMutations.size())
 	{
-		for (int j = 0; j < savePermCol.size(); ++j)
+		for (int site = 0; site < nsite; ++site)
 		{
-			int p = savePermCol[j];
-			compressedPermCol[j] = alignment->existingSamples[0][p].compressed_position;
-			permCol[j] = alignment->existingSamples[0][p].position;
+			int col = rotatedPermutationColumn[site];
+			compressedPermCol[site] = alignment->existingSampleMutations[0][col].compressed_position;
+			permCol[site] = alignment->existingSampleMutations[0][col].position;
 		}
 	}
 	alignment->ungroupSitePattern();
 	tree->add_row = true;
-	tree->save_branch_states_dad = new UINT[(alignment->size() + 7) / 8 + 1];
-	tree->computeParsimony();
+	tree->root_states = new UINT[(alignment->size() + 7) / 8 + 1];
 	tree->initMutation(permCol, compressedPermCol);
 }
 
-int readFile(ifstream &inFileStream, char *outFileName, int numRow)
+int readInitialAlignment(ifstream &inFileStream, char *outFileName, int numInitialRow)
 {
 	ofstream outFile(outFileName);
 	if (!outFile.is_open())
 	{
-		cout << "Cannot open file " << outFileName << '\n';
-		return 0;
+		cout << "Cannot open outputfile :" << outFileName << '\n';
+		exit(1);
 	}
 	string line;
-	int curRow = 0;
+	int currentRow = 0;
 	while (getline(inFileStream, line))
 	{
 		if (line == "")
@@ -197,14 +169,14 @@ int readFile(ifstream &inFileStream, char *outFileName, int numRow)
 			continue;
 		}
 		outFile << line << '\n';
-		++curRow;
-		if (curRow >= numRow)
+		++currentRow;
+		if (currentRow >= numInitialRow)
 		{
 			break;
 		}
 	}
 	outFile.close();
-	return curRow;
+	return currentRow;
 }
 
 int readVCFFile(IQTree *tree, Alignment **alignment, Params &params)
@@ -216,90 +188,62 @@ int readVCFFile(IQTree *tree, Alignment **alignment, Params &params)
 	string line;
 	in.exceptions(ios::badbit);
 
-	int totalColumn = readFile(in, "temp.vcf", 12) - 1;
-	*alignment = new Alignment("temp.vcf", params.sequence_type, params.intype, params.numStartRow);
+	// Read first 12 lines and create tree alignment
+	int totalColumn = readInitialAlignment(in, "temp.vcf", 12) - 1; // Read first 12 lines and write to temp.vcf
+	*alignment = new Alignment("temp.vcf", params.sequence_type, params.intype, params.num_existing_sample);
 	(*alignment)->ungroupSitePattern();
 	std::remove("temp.vcf");
-
 	tree->setAlignment(*alignment);
 	tree->aln = *alignment;
 
-	vector<int> permCol = (*alignment)->findPermCol();
-	vector<int> savePermCol = permCol;
-	vector<int> compressedPermCol = permCol;
-	initialize(tree, *alignment, savePermCol, permCol, compressedPermCol);
+	vector<int> rotatedColumnPermutation = (*alignment)->findRotatedColumnPermutation();
+	initializeNewColumn(tree, *alignment, rotatedColumnPermutation);
 
-	auto startTime = getCPUTime();
 	while (true)
 	{
-		startTime = getCPUTime();
-		int numColumn = (*alignment)->readPartialVCF(in, params.sequence_type, savePermCol, params.numStartRow, totalColumn, 8);
-		if (numColumn == 0)
+		int numProcessedColumn = (*alignment)->readPartialVCF(in, params.sequence_type, rotatedColumnPermutation, params.num_existing_sample, totalColumn, 8);
+		if (numProcessedColumn == 0)
 		{
+			// Process all columns
 			break;
 		}
-
 		tree->clearAllPartialLH();
-		totalColumn += numColumn;
-		startTime = getCPUTime();
-		initialize(tree, *alignment, savePermCol, permCol, compressedPermCol);
+		totalColumn += numProcessedColumn;
+		initializeNewColumn(tree, *alignment, rotatedColumnPermutation);
 	}
 
 	in.close();
 	return totalColumn;
 }
 
-void addMoreRowMutation(Params &params)
+void placeNewSamplesOntoExistingTree(Params &params)
 {
-	Alignment *alignment;
+	cout << "\n========== Start initial data structure ==========\n";
 
+	Alignment *alignment;
 	IQTree *tree;
 	tree = new IQTree;
-
 	char *fileName = params.mutation_tree_file;
 	bool isRooted = false;
 
-	if (params.tree_zip_file != NULL)
-	{
-		tree->readTree(params.tree_zip_file, fileName, isRooted);
-	}
-	else
-	{
-		tree->readTree(fileName, isRooted);
-	}
-
-	int vecSize = readVCFFile(tree, &alignment, params) + 1;
+	tree->readTree(fileName, isRooted);
+	int numColumn = readVCFFile(tree, &alignment, params) + 1;
 	// Init new tree's memory
-	tree->cur_missing_sample_mutations.resize(vecSize);
-	tree->cur_ancestral_mutations.resize(vecSize);
-	tree->visited_missing_sample_mutations.resize(vecSize);
-	tree->visited_ancestral_mutations.resize(vecSize);
-	tree->cur_excess_mutations.resize(vecSize);
-	tree->visited_excess_mutations.resize(vecSize);
+	tree->allocateMutationMemory(numColumn);
+	// free memory
+	delete[] tree->root_states;
+	tree->add_row = false;
+	cout << "Tree parsimony after init mutations: " << tree->computeParsimonyScoreMutation() << '\n';
 
 	cout << "\n========== Start placement core ==========\n";
-
-	// free memory
-	delete[] tree->save_branch_states_dad;
-	tree->add_row = false;
-
-	cout << "Tree parsimony after init mutations: " << tree->computeParsimonyScoreMutation() << '\n';
-	int numSample = (int)alignment->missingSamples.size();
-	vector<MutationNode> missingSamples(numSample);
-	for (int i = 0; i < (int)alignment->missingSamples.size(); ++i)
-	{
-		missingSamples[i].mutations = alignment->missingSamples[i];
-		missingSamples[i].name = alignment->remainName[i];
-	}
-	numSample = min(numSample, params.numAddRow);
+	int numSample = min((int)alignment->missingSampleMutations.size(), params.num_missing_sample);
 
 	auto startTime = getCPUTime();
-
 	for (int i = 0; i < numSample; ++i)
 	{
 		vector<pair<PhyloNode *, PhyloNeighbor *>> bfs = tree->breadth_first_expansion();
-
 		int totalNodes = (int)bfs.size();
+		
 		CandidateNode inp;
 		int bestSetDifference = INF;
 		size_t bestNodeNumLeaves = INF;
@@ -307,18 +251,18 @@ void addMoreRowMutation(Params &params)
 		std::vector<Mutation> excessMutations;
 		std::vector<bool> nodeHasUnique(totalNodes, false);
 		bool bestNodeHasUnique = false;
-		size_t bestJ = 0;
+		size_t bestIndex = 0;
 
 		inp.best_set_difference = &bestSetDifference;
 		inp.best_node_num_leaves = &bestNodeNumLeaves;
 		inp.best_distance = &bestDistance;
 		inp.node = (PhyloNode *)tree->root->neighbors[0]->node;
 		inp.node_branch = (PhyloNeighbor *)inp.node->findNeighbor(tree->root);
-		inp.missing_sample_mutations = &missingSamples[i].mutations;
+		inp.missing_sample_mutations = &alignment->missingSampleMutations[i];
 		inp.excess_mutations = &excessMutations;
 		inp.has_unique = &bestNodeHasUnique;
 		inp.node_has_unique = &(nodeHasUnique);
-		inp.best_j = &bestJ;
+		inp.best_index = &bestIndex;
 
 		tree->initDataCalculatePlacementMutation(inp);
 		tree->optimizedCalculatePlacementMutation(inp, 0, true);
@@ -327,28 +271,19 @@ void addMoreRowMutation(Params &params)
 		{
 			if (inp.best_node == bfs[j].first)
 			{
-				bestJ = j;
-				break;
+				bestIndex = j;
 			}
 		}
 		*inp.best_set_difference = INF;
-		inp.j = bestJ;
-		inp.node = bfs[bestJ].first;
-		inp.node_branch = bfs[bestJ].second;
+		inp.index = bestIndex;
+		inp.node = bfs[bestIndex].first;
+		inp.node_branch = bfs[bestIndex].second;
 		tree->calculatePlacementMutation(inp, false, true);
-		tree->addNewSample(bfs[bestJ].first, bfs[bestJ].second, excessMutations, i, missingSamples[i].name);
+		tree->addNewSample(bfs[bestIndex].first, bfs[bestIndex].second, excessMutations, i, alignment->missingSampleNames[i]);
 	}
 	cout << "New tree's parsimony score: " << tree->computeParsimonyScoreMutation() << '\n';
 	cout << "Time: " << fixed << setprecision(3) << (double)(getCPUTime() - startTime) << " seconds\n";
 	cout << "Memory: " << getMemory() << " KB\n";
-
-	// free memory
-	tree->cur_missing_sample_mutations.clear();
-	tree->cur_ancestral_mutations.clear();
-	tree->visited_missing_sample_mutations.clear();
-	tree->visited_ancestral_mutations.clear();
-	tree->cur_excess_mutations.clear();
-	tree->visited_excess_mutations.clear();
 
 	delete alignment;
 	alignment = NULL;
