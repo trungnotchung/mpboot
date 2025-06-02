@@ -1766,7 +1766,7 @@ int Alignment::readVCF(char *filename, char *sequence_type, int numStartRow)
             {
                 if (i - 9 >= numStartRow)
                 {
-                    newSequenceNames.push_back(words[i]);
+                    missingSampleNames.push_back(words[i]);
                 }
                 else
                 {
@@ -1775,7 +1775,7 @@ int Alignment::readVCF(char *filename, char *sequence_type, int numStartRow)
                 }
             }
             sequences.resize(nseq, "");
-            missingSampleMutations.resize(newSequenceNames.size());
+            missingSampleMutations.resize(missingSampleNames.size());
             existingSampleMutations.resize(nseq);
         }
         else
@@ -1943,14 +1943,14 @@ int Alignment::readPhylip(char *filename, char *sequence_type, int numStartRow)
         }
         else
         {
-            newSequenceNames.push_back("");
-            newSequences.push_back("");
-            if (newSequenceNames.back() == "")
+            missingSampleNames.push_back("");
+            missingSampleSequences.push_back("");
+            if (missingSampleNames.back() == "")
             { // cut out the sequence name
                 string::size_type pos = line.find_first_of(" \t");
                 if (pos == string::npos)
                     pos = 10; //  assume standard phylip
-                newSequenceNames.back() = line.substr(0, pos);
+                missingSampleNames.back() = line.substr(0, pos);
                 line.erase(0, pos);
             }
 
@@ -1959,14 +1959,14 @@ int Alignment::readPhylip(char *filename, char *sequence_type, int numStartRow)
                 if ((*it) <= ' ')
                     continue;
                 if (isalnum(*it) || (*it) == '-' || (*it) == '?' || (*it) == '.')
-                    newSequences.back().append(1, toupper(*it));
+                    missingSampleSequences.back().append(1, toupper(*it));
                 else
                 {
                     err_str << "Unrecognized character " << *it << " on line " << line_num;
                     throw err_str.str();
                 }
             }
-            if (newSequences.back().length() != sequences[0].length())
+            if (missingSampleSequences.back().length() != sequences[0].length())
             {
                 err_str << "Line " << line_num << ": alignment block has variable sequence lengths" << endl;
                 throw err_str.str();

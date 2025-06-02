@@ -314,6 +314,11 @@ public:
         vector<Mutation> root_mutations;
 
         /**
+         * Allocate memory for mutation data
+         */
+        void allocateMutationMemory(int num_column);
+
+        /**
          * Initialize mutation data for MAT
          */
         void initMutation(vector<int> &perm_col, vector<int> &compressed_perm_col);

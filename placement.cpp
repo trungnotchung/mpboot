@@ -218,6 +218,8 @@ int readVCFFile(IQTree *tree, Alignment **alignment, Params &params)
 
 void placeNewSamplesOntoExistingTree(Params &params)
 {
+	cout << "\n========== Start initial data structure ==========\n";
+
 	Alignment *alignment;
 	IQTree *tree;
 	tree = new IQTree;
@@ -225,30 +227,16 @@ void placeNewSamplesOntoExistingTree(Params &params)
 	bool isRooted = false;
 
 	tree->readTree(fileName, isRooted);
-
-	int vecSize = readVCFFile(tree, &alignment, params) + 1;
+	int numColumn = readVCFFile(tree, &alignment, params) + 1;
 	// Init new tree's memory
-	tree->cur_missing_sample_mutations.resize(vecSize);
-	tree->cur_ancestral_mutations.resize(vecSize);
-	tree->visited_missing_sample_mutations.resize(vecSize);
-	tree->visited_ancestral_mutations.resize(vecSize);
-	tree->cur_excess_mutations.resize(vecSize);
-	tree->visited_excess_mutations.resize(vecSize);
-
-	cout << "\n========== Start placement core ==========\n";
-
+	tree->allocateMutationMemory(numColumn);
 	// free memory
 	delete[] tree->root_states;
 	tree->add_row = false;
-
 	cout << "Tree parsimony after init mutations: " << tree->computeParsimonyScoreMutation() << '\n';
+
+	cout << "\n========== Start placement core ==========\n";
 	int numSample = (int)alignment->missingSampleMutations.size();
-	vector<MutationNode> missingSamples(numSample);
-	for (int i = 0; i < (int)alignment->missingSampleMutations.size(); ++i)
-	{
-		missingSamples[i].mutations = alignment->missingSampleMutations[i];
-		missingSamples[i].name = alignment->newSequenceNames[i];
-	}
 	numSample = min(numSample, params.numAddRow);
 
 	auto startTime = getCPUTime();
@@ -272,7 +260,7 @@ void placeNewSamplesOntoExistingTree(Params &params)
 		inp.best_distance = &bestDistance;
 		inp.node = (PhyloNode *)tree->root->neighbors[0]->node;
 		inp.node_branch = (PhyloNeighbor *)inp.node->findNeighbor(tree->root);
-		inp.missing_sample_mutations = &missingSamples[i].mutations;
+		inp.missing_sample_mutations = &alignment->missingSampleMutations[i];
 		inp.excess_mutations = &excessMutations;
 		inp.has_unique = &bestNodeHasUnique;
 		inp.node_has_unique = &(nodeHasUnique);
@@ -294,19 +282,11 @@ void placeNewSamplesOntoExistingTree(Params &params)
 		inp.node = bfs[bestJ].first;
 		inp.node_branch = bfs[bestJ].second;
 		tree->calculatePlacementMutation(inp, false, true);
-		tree->addNewSample(bfs[bestJ].first, bfs[bestJ].second, excessMutations, i, missingSamples[i].name);
+		tree->addNewSample(bfs[bestJ].first, bfs[bestJ].second, excessMutations, i, alignment->missingSampleNames[i]);
 	}
 	cout << "New tree's parsimony score: " << tree->computeParsimonyScoreMutation() << '\n';
 	cout << "Time: " << fixed << setprecision(3) << (double)(getCPUTime() - startTime) << " seconds\n";
 	cout << "Memory: " << getMemory() << " KB\n";
-
-	// free memory
-	tree->cur_missing_sample_mutations.clear();
-	tree->cur_ancestral_mutations.clear();
-	tree->visited_missing_sample_mutations.clear();
-	tree->visited_ancestral_mutations.clear();
-	tree->cur_excess_mutations.clear();
-	tree->visited_excess_mutations.clear();
 
 	delete alignment;
 	alignment = NULL;

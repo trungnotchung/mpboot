@@ -614,14 +614,14 @@ public:
         int n_informative_sites;
 
         /**
-         * New sequence names
+         * Missing sample names
          */
-        vector<string> newSequenceNames;
+        vector<string> missingSampleNames;
 
         /**
-         * New sequences
+         * Missing sample sequences
          */
-        vector<string> newSequences;
+        vector<string> missingSampleSequences;
 
         /**
          * Initial column state

@@ -5689,6 +5689,16 @@ void PhyloTree::printTransMatrices(Node *node, Node *dad)
     printTransMatrices((*it)->node, node);
 }
 
+void PhyloTree::allocateMutationMemory(int num_column)
+{
+    cur_missing_sample_mutations.resize(num_column);
+	cur_ancestral_mutations.resize(num_column);
+	visited_missing_sample_mutations.resize(num_column);
+	visited_ancestral_mutations.resize(num_column);
+	cur_excess_mutations.resize(num_column);
+	visited_excess_mutations.resize(num_column);
+}
+
 void PhyloTree::computePartialMutation(UINT *states_dad, vector<int> &perm_col, vector<int> &compressed_perm_col, PhyloNeighbor *dad_branch, PhyloNode *dad)
 {
     PhyloNode *node = (PhyloNode *)dad_branch->node;
