@@ -5,8 +5,6 @@
 #include "fstream"
 #include "timeutil.h"
 
-const int INF = (int)1e9 + 7;
-
 /**
  * Place new samples onto existing tree
  */

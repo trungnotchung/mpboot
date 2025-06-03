@@ -65,7 +65,7 @@ void initializeNewColumn(IQTree *tree, Alignment *alignment, vector<int> &rotate
 	tree->initMutation(permCol, compressedPermCol);
 }
 
-int readInitialAlignment(ifstream &inFileStream, char *outFileName, int numInitialRow)
+int readInitialAlignment(ifstream &INT_MAXileStream, char *outFileName, int numInitialRow)
 {
 	ofstream outFile(outFileName);
 	if (!outFile.is_open())
@@ -75,7 +75,7 @@ int readInitialAlignment(ifstream &inFileStream, char *outFileName, int numIniti
 	}
 	string line;
 	int currentRow = 0;
-	while (getline(inFileStream, line))
+	while (getline(INT_MAXileStream, line))
 	{
 		if (line == "")
 		{
@@ -148,7 +148,7 @@ void placeNewSamplesOntoExistingTree(Params &params)
 	tree->add_row = false;
 	cout << "Tree parsimony after init mutations: " << tree->computeParsimonyScoreMutation() << '\n';
 
-	cout << "\n========== Start placement core ==========\n";
+	cout << "\n========== Starting placement core ==========\n";
 	int numSample = min((int)alignment->missingSampleMutations.size(), params.num_missing_sample);
 
 	auto startTime = getCPUTime();
@@ -158,9 +158,9 @@ void placeNewSamplesOntoExistingTree(Params &params)
 		int totalNodes = (int)bfs.size();
 
 		CandidateNode inp;
-		int bestSetDifference = INF;
-		size_t bestNodeNumLeaves = INF;
-		size_t bestDistance = INF;
+		int bestSetDifference = INT_MAX;
+		size_t bestNodeNumLeaves = INT_MAX;
+		size_t bestDistance = INT_MAX;
 		std::vector<Mutation> excessMutations;
 		std::vector<bool> nodeHasUnique(totalNodes, false);
 		bool bestNodeHasUnique = false;
@@ -187,13 +187,15 @@ void placeNewSamplesOntoExistingTree(Params &params)
 				bestIndex = j;
 			}
 		}
-		*inp.best_set_difference = INF;
+		*inp.best_set_difference = INT_MAX;
 		inp.index = bestIndex;
 		inp.node = bfs[bestIndex].first;
 		inp.node_branch = bfs[bestIndex].second;
 		tree->calculatePlacementMutation(inp, false, true);
 		tree->addNewSample(bfs[bestIndex].first, bfs[bestIndex].second, excessMutations, i, alignment->missingSampleNames[i]);
 	}
+
+	cout << "\n========== Finished placement core ==========\n";
 	cout << "New tree's parsimony score: " << tree->computeParsimonyScoreMutation() << '\n';
 	cout << "Time: " << fixed << setprecision(3) << (double)(getCPUTime() - startTime) << " seconds\n";
 	cout << "Memory: " << getMemory() << " KB\n";
