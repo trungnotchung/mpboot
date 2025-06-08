@@ -50,13 +50,13 @@ void initializeNewColumn(IQTree *tree, Alignment *alignment, vector<int> &rotate
 	int nsite = rotatedPermutationColumn.size();
 	vector<int> permCol(nsite);
 	vector<int> compressedPermCol(nsite);
-	if (alignment->existingSampleMutations.size())
+	if (alignment->existing_sample_mutations.size())
 	{
 		for (int site = 0; site < nsite; ++site)
 		{
 			int col = rotatedPermutationColumn[site];
-			compressedPermCol[site] = alignment->existingSampleMutations[0][col].compressed_position;
-			permCol[site] = alignment->existingSampleMutations[0][col].position;
+			compressedPermCol[site] = alignment->existing_sample_mutations[0][col].compressed_position;
+			permCol[site] = alignment->existing_sample_mutations[0][col].position;
 		}
 	}
 	alignment->ungroupSitePattern();
@@ -149,7 +149,7 @@ void placeNewSamplesOntoExistingTree(Params &params)
 	cout << "Tree parsimony after init mutations: " << tree->computeParsimonyScoreMutation() << '\n';
 
 	cout << "\n========== Starting placement core ==========\n";
-	int numSample = min((int)alignment->missingSampleMutations.size(), params.num_missing_sample);
+	int numSample = min((int)alignment->missing_sample_mutations.size(), params.num_missing_sample);
 
 	auto startTime = getCPUTime();
 	for (int i = 0; i < numSample; ++i)
@@ -171,7 +171,7 @@ void placeNewSamplesOntoExistingTree(Params &params)
 		inp.best_distance = &bestDistance;
 		inp.node = (PhyloNode *)tree->root->neighbors[0]->node;
 		inp.node_branch = (PhyloNeighbor *)inp.node->findNeighbor(tree->root);
-		inp.missing_sample_mutations = &alignment->missingSampleMutations[i];
+		inp.missing_sample_mutations = &alignment->missing_sample_mutations[i];
 		inp.excess_mutations = &excessMutations;
 		inp.has_unique = &bestNodeHasUnique;
 		inp.node_has_unique = &(nodeHasUnique);
@@ -192,7 +192,7 @@ void placeNewSamplesOntoExistingTree(Params &params)
 		inp.node = bfs[bestIndex].first;
 		inp.node_branch = bfs[bestIndex].second;
 		tree->calculatePlacementMutation(inp, false, true);
-		tree->addNewSample(bfs[bestIndex].first, bfs[bestIndex].second, excessMutations, i, alignment->missingSampleNames[i]);
+		tree->addNewSample(bfs[bestIndex].first, bfs[bestIndex].second, excessMutations, i, alignment->missing_sample_names[i]);
 	}
 
 	cout << "\n========== Finished placement core ==========\n";

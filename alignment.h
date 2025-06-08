@@ -613,28 +613,28 @@ public:
     /**
      * Missing sample names
      */
-    vector<string> missingSampleNames;
+    vector<string> missing_sample_names;
 
     /**
      * Missing sample sequences
      */
-    vector<string> missingSampleSequences;
+    vector<string> missing_sample_sequences;
 
     /**
      * Initial column state
      * Using for finding rotated column permutation
      */
-    vector<string> initialColumnState;
+    vector<string> initial_column_state;
 
     /**
      * Missing sample mutations
      */
-    vector<vector<Mutation>> missingSampleMutations;
+    vector<vector<Mutation>> missing_sample_mutations;
 
     /**
      * Existing sample mutations
      */
-    vector<vector<Mutation>> existingSampleMutations;
+    vector<vector<Mutation>> existing_sample_mutations;
 
     /**
      * Reference nucleotides
@@ -644,17 +644,17 @@ public:
     /**
      * Replace current alignment with new sequences
      */
-    void updateAlignmentNewSequences(const vector<string> &newSeqs, const vector<int> &permCol);
+    void updateAlignmentNewSequences(const vector<string> &new_seqs, const vector<int> &perm_col);
 
     /**
      * Add a new sequence to the alignment
      */
-    void addToAlignmentNewSequence(const string &newName, const string &newSeq, const vector<int> &permCol);
+    void addToAlignmentNewSequence(const string &new_seq_name, const string &new_seq, const vector<int> &perm_col);
 
     /**
      * Add new sequences to the alignment
      */
-    void addToAlignmentNewSequences(const vector<string> &newNames, const vector<string> &newSeqs, const vector<int> &permCol);
+    void addToAlignmentNewSequences(const vector<string> &new_seq_names, const vector<string> &new_seqs, const vector<int> &perm_col);
 
     /**
      * Get mutation from state
@@ -675,12 +675,12 @@ public:
      * Read partial VCF file
      * Using for reducing memory usage
      */
-    int readPartialVCF(ifstream &in, char *sequence_type, vector<int> &permCol, int numStartRow, int startIndex, int numColumn);
+    int readPartialVCF(ifstream &in, char *sequence_type, vector<int> &perm_col, int num_start_row, int start_index, int num_column);
 
     /**
      * Read VCF file
      */
-    int readVCF(char *filename, char *sequence_type, int numStartRow);
+    int readVCF(char *file_name, char *sequence_type, int num_start_row);
 
 protected:
 
