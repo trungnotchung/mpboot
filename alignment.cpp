@@ -398,7 +398,7 @@ void Alignment::checkGappySeq(bool force_error) {
     }
 }
 
-Alignment::Alignment(char *filename, char *sequence_type, InputType &intype, int num_start_row) : vector<Pattern>() {
+Alignment::Alignment(char *filename, char *sequence_type, InputType &intype, int existing_sequence) : vector<Pattern>() {
     num_states = 0;
     frac_const_sites = 0.0;
     codon_table = NULL;
@@ -422,7 +422,7 @@ Alignment::Alignment(char *filename, char *sequence_type, InputType &intype, int
             readPhylip(filename, sequence_type);
         } else if (intype == IN_VCF) {
             cout << "VCF format detected" << endl;
-            readVCF(filename, sequence_type, num_start_row);
+            readVCF(filename, sequence_type, existing_sequence);
         } else {
             outError("Unknown sequence format, please use PHYLIP, FASTA, or NEXUS format");
         }
@@ -1311,6 +1311,30 @@ void split(const string &s, vector<string> &elems, const string &delim)
         pos = find_pos + delim_len;
     }
 }
+int Alignment::getNumberSequence(char *file_name)
+{
+	ifstream in;
+	in.exceptions(ios::failbit | ios::badbit);
+	in.open(file_name);
+	string line;
+	in.exceptions(ios::badbit);
+
+	for (; !in.eof();)
+	{
+		getline(in, line);
+        if (line == "")
+            continue;
+        vector<string> words;
+        split(line, words, "\t");
+        if (words.size() == 1)
+            continue;
+        if (words[1] == "POS")
+		{
+			return words.size() - 9;
+		}
+	}
+    throw "Cannot find number of sequence in alignment file\n";
+}
 
 // Find the permutation of columns after rotation
 vector<int> Alignment::findRotatedColumnPermutation()
@@ -1479,7 +1503,7 @@ void Alignment::updateAlignmentNewSequences(const vector<string> &new_sequences,
 }
 
 // Read partial VCF file and update alignment
-int Alignment::readPartialVCF(ifstream &in, char *sequence_type, vector<int> &perm_col, int num_start_row, int start_index, int num_column)
+int Alignment::readPartialVCF(ifstream &in, char *sequence_type, vector<int> &perm_col, int existing_sequence, int start_index, int num_column)
 {
     if (in.eof())
     {
@@ -1526,7 +1550,7 @@ int Alignment::readPartialVCF(ifstream &in, char *sequence_type, vector<int> &pe
                 if (allele_id > 0)
                 {
                     std::string allele = alleles[allele_id - 1];
-                    if (i - 9 < num_start_row)
+                    if (i - 9 < existing_sequence)
                     {
                         sequences[i - 9].push_back(allele[0]);
                     }
@@ -1534,7 +1558,7 @@ int Alignment::readPartialVCF(ifstream &in, char *sequence_type, vector<int> &pe
                 }
                 else
                 {
-                    if (i - 9 < num_start_row)
+                    if (i - 9 < existing_sequence)
                     {
                         sequences[i - 9].push_back(words[3][0]);
                     }
@@ -1543,19 +1567,19 @@ int Alignment::readPartialVCF(ifstream &in, char *sequence_type, vector<int> &pe
             }
             else
             {
-                if (i - 9 < num_start_row)
+                if (i - 9 < existing_sequence)
                 {
                     sequences[i - 9].push_back('-');
                 }
                 cur_mut.mut_nuc = getMutationFromState('N');
                 cur_mut.is_missing = true;
             }
-            if (i - 9 >= num_start_row)
+            if (i - 9 >= existing_sequence)
             {
                 if (cur_mut.mut_nuc != cur_mut.ref_nuc)
                 {
                     cur_mut.par_nuc = cur_mut.ref_nuc;
-                    missing_sample_mutations[i - 9 - num_start_row].push_back(cur_mut);
+                    missing_sample_mutations[i - 9 - existing_sequence].push_back(cur_mut);
                 }
             }
             else
@@ -1586,7 +1610,7 @@ int Alignment::readPartialVCF(ifstream &in, char *sequence_type, vector<int> &pe
     return num_processed_column;
 }
 
-int Alignment::readVCF(char *filename, char *sequence_type, int num_start_row)
+int Alignment::readVCF(char *filename, char *sequence_type, int existing_sequence)
 {
     StrVector sequences;
     ifstream in;
@@ -1595,6 +1619,7 @@ int Alignment::readVCF(char *filename, char *sequence_type, int num_start_row)
     int nseq = 0;
     int nsite = 0;
     int seq_id = 0;
+    int num_missing_sequence = 0;
     string line;
     in.exceptions(ios::badbit);
     int num_processed_column = 0;
@@ -1613,9 +1638,10 @@ int Alignment::readVCF(char *filename, char *sequence_type, int num_start_row)
             // Sample names start from the 10th word in the header
             for (int i = 9; i < words.size(); i++)
             {
-                if (i - 9 >= num_start_row)
+                if (i - 9 >= existing_sequence)
                 {
-                    missing_sample_names.push_back(words[i]);
+                    missing_seq_names.push_back(words[i]);
+                    num_missing_sequence++;
                 }
                 else
                 {
@@ -1624,12 +1650,12 @@ int Alignment::readVCF(char *filename, char *sequence_type, int num_start_row)
                 }
             }
             sequences.resize(nseq, "");
-            missing_sample_mutations.resize(missing_sample_names.size());
             existing_sample_mutations.resize(nseq);
+            missing_sample_mutations.resize(num_missing_sequence);
         }
         else
         {
-            if (words.size() != 9 + nseq + missing_sample_mutations.size())
+            if (words.size() != 9 + nseq + num_missing_sequence)
                 throw "Number of columns in VCF file is not consistent";
             vector<string> alleles;
             Mutation cur_mut;
@@ -1651,42 +1677,36 @@ int Alignment::readVCF(char *filename, char *sequence_type, int num_start_row)
                     if (allele_id > 0)
                     {
                         std::string allele = alleles[allele_id - 1];
-                        if (i - 9 < num_start_row)
-                        {
+                        if (i - 9 < existing_sequence)
                             sequences[i - 9].push_back(allele[0]);
-                        }
+
                         cur_mut.mut_nuc = getMutationFromState(allele[0]);
                     }
                     else
                     {
-                        if (i - 9 < num_start_row)
-                        {
+                        if (i - 9 < existing_sequence)
                             sequences[i - 9].push_back(words[3][0]);
-                        }
+
                         cur_mut.mut_nuc = getMutationFromState(words[3][0]);
                     }
                 }
                 else
                 {
-                    if (i - 9 < num_start_row)
-                    {
+                    if (i - 9 < existing_sequence)
                         sequences[i - 9].push_back('-');
-                    }
                     cur_mut.mut_nuc = getMutationFromState('N');
                     cur_mut.is_missing = true;
                 }
-                if (i - 9 >= num_start_row)
+                if (i - 9 >= existing_sequence)
                 {
                     if (cur_mut.mut_nuc != cur_mut.ref_nuc)
                     {
                         cur_mut.par_nuc = cur_mut.ref_nuc;
-                        missing_sample_mutations[i - 9 - num_start_row].push_back(cur_mut);
+                        missing_sample_mutations[i - 9 - existing_sequence].push_back(cur_mut);
                     }
                 }
                 else
-                {
                     existing_sample_mutations[i - 9].push_back(cur_mut);
-                }
             }
             ++nsite;
             ++num_processed_column;

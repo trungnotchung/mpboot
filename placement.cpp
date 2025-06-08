@@ -45,7 +45,7 @@ void configLeafNames(IQTree *tree, Node *node, Node *dad)
 	configLeafNames(tree, (*it)->node, node);
 }
 
-void initializeNewColumn(IQTree *tree, Alignment *alignment, vector<int> &rotatedPermutationColumn)
+void initAlignment(IQTree *tree, Alignment *alignment, vector<int> &rotatedPermutationColumn)
 {
 	int nsite = rotatedPermutationColumn.size();
 	vector<int> permCol(nsite);
@@ -65,7 +65,7 @@ void initializeNewColumn(IQTree *tree, Alignment *alignment, vector<int> &rotate
 	tree->initMutation(permCol, compressedPermCol);
 }
 
-int readInitialAlignment(ifstream &INT_MAXileStream, char *outFileName, int numInitialRow)
+int readInitialAlignment(ifstream &inFileStream, char *outFileName, int numInitialRow)
 {
 	ofstream outFile(outFileName);
 	if (!outFile.is_open())
@@ -75,7 +75,7 @@ int readInitialAlignment(ifstream &INT_MAXileStream, char *outFileName, int numI
 	}
 	string line;
 	int currentRow = 0;
-	while (getline(INT_MAXileStream, line))
+	while (getline(inFileStream, line))
 	{
 		if (line == "")
 		{
@@ -94,10 +94,18 @@ int readInitialAlignment(ifstream &INT_MAXileStream, char *outFileName, int numI
 
 int readVCFFile(IQTree *tree, Alignment **alignment, Params &params)
 {
-	char *alnFile = params.aln_file;
+	if (Alignment::getNumberSequence(params.aln_file) <= MAX_SEQUENCE) {
+		*alignment = new Alignment(params.aln_file, params.sequence_type, params.intype, params.num_existing_sample);
+		tree->setAlignment(*alignment);
+		tree->aln = *alignment;
+		vector<int> rotatedColumnPermutation = (*alignment)->findRotatedColumnPermutation();
+		initAlignment(tree, *alignment, rotatedColumnPermutation);
+		return (*alignment)->getNSite();
+	}
+
 	ifstream in;
 	in.exceptions(ios::failbit | ios::badbit);
-	in.open(alnFile);
+	in.open(params.aln_file);
 	string line;
 	in.exceptions(ios::badbit);
 
@@ -110,19 +118,16 @@ int readVCFFile(IQTree *tree, Alignment **alignment, Params &params)
 	tree->aln = *alignment;
 
 	vector<int> rotatedColumnPermutation = (*alignment)->findRotatedColumnPermutation();
-	initializeNewColumn(tree, *alignment, rotatedColumnPermutation);
+	initAlignment(tree, *alignment, rotatedColumnPermutation);
 
 	while (true)
 	{
 		int numProcessedColumn = (*alignment)->readPartialVCF(in, params.sequence_type, rotatedColumnPermutation, params.num_existing_sample, totalColumn, 8);
 		if (numProcessedColumn == 0)
-		{
-			// Process all columns
 			break;
-		}
 		tree->clearAllPartialLH();
 		totalColumn += numProcessedColumn;
-		initializeNewColumn(tree, *alignment, rotatedColumnPermutation);
+		initAlignment(tree, *alignment, rotatedColumnPermutation);
 	}
 
 	in.close();
@@ -192,7 +197,7 @@ void placeNewSamplesOntoExistingTree(Params &params)
 		inp.node = bfs[bestIndex].first;
 		inp.node_branch = bfs[bestIndex].second;
 		tree->calculatePlacementMutation(inp, false, true);
-		tree->addNewSample(bfs[bestIndex].first, bfs[bestIndex].second, excessMutations, i, alignment->missing_sample_names[i]);
+		tree->addNewSample(bfs[bestIndex].first, bfs[bestIndex].second, excessMutations, i, alignment->missing_seq_names[i]);
 	}
 
 	cout << "\n========== Finished placement core ==========\n";

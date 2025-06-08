@@ -5,6 +5,8 @@
 #include "fstream"
 #include "timeutil.h"
 
+const int MAX_SEQUENCE = 20000;
+
 /**
  * Place new samples onto existing tree
  */

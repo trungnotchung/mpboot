@@ -59,7 +59,7 @@ public:
             @param sequence_type type of the sequence, either "BIN", "DNA", "AA", or NULL
             @param intype (OUT) input format of the file
      */
-    Alignment(char *filename, char *sequence_type, InputType &intype, int numStartRow = INT_MAX);
+    Alignment(char *filename, char *sequence_type, InputType &intype, int existing_sequence = INT_MAX);
 
     /**
             destructor
@@ -613,12 +613,7 @@ public:
     /**
      * Missing sample names
      */
-    vector<string> missing_sample_names;
-
-    /**
-     * Missing sample sequences
-     */
-    vector<string> missing_sample_sequences;
+    vector<string> missing_seq_names;
 
     /**
      * Initial column state
@@ -675,12 +670,17 @@ public:
      * Read partial VCF file
      * Using for reducing memory usage
      */
-    int readPartialVCF(ifstream &in, char *sequence_type, vector<int> &perm_col, int num_start_row, int start_index, int num_column);
+    int readPartialVCF(ifstream &in, char *sequence_type, vector<int> &perm_col, int existing_sequence, int start_index, int num_column);
 
     /**
      * Read VCF file
      */
-    int readVCF(char *file_name, char *sequence_type, int num_start_row);
+    int readVCF(char *file_name, char *sequence_type, int existing_sequence);
+
+    /**
+     * Get number of sequence
+     */
+    static int getNumberSequence(char *file_name);
 
 protected:
 
