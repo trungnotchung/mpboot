@@ -207,8 +207,7 @@ void placeNewSamplesOntoExistingTree(Params &params)
 	cout << "Memory: " << getMemory() << " KB\n";
 	
 	cout << "New tree's parsimony score computed by mutation: " << tree->computeParsimonyScoreMutation() << '\n';
-	tree->initializeAllPartialPars();
-	tree->clearAllPartialLH();
+	tree->deleteAllPartialLh();
 	cout << "New tree's parsimony score computed by fitch: " << tree->computeParsimony() << '\n';
 
 	delete alignment;
