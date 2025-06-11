@@ -200,10 +200,16 @@ void placeNewSamplesOntoExistingTree(Params &params)
 		tree->addNewSample(bfs[bestIndex].first, bfs[bestIndex].second, excessMutations, i, alignment->missing_seq_names[i]);
 	}
 
+	alignment->addToAlignmentNewSequences(alignment->missing_seq_names, alignment->missing_sequences);
+
 	cout << "\n========== Finished placement core ==========\n";
-	cout << "New tree's parsimony score: " << tree->computeParsimonyScoreMutation() << '\n';
 	cout << "Time: " << fixed << setprecision(3) << (double)(getCPUTime() - startTime) << " seconds\n";
 	cout << "Memory: " << getMemory() << " KB\n";
+	
+	cout << "New tree's parsimony score computed by mutation: " << tree->computeParsimonyScoreMutation() << '\n';
+	tree->initializeAllPartialPars();
+	tree->clearAllPartialLH();
+	cout << "New tree's parsimony score computed by fitch: " << tree->computeParsimony() << '\n';
 
 	delete alignment;
 	alignment = NULL;

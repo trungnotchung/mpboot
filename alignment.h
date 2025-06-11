@@ -611,9 +611,14 @@ public:
     int n_informative_sites;
 
     /**
-     * Missing sample names
+     * Missing sequence names
      */
     vector<string> missing_seq_names;
+
+    /**
+     * Missing sequences
+     */
+    vector<string> missing_sequences;
 
     /**
      * Initial column state
@@ -644,12 +649,12 @@ public:
     /**
      * Add a new sequence to the alignment
      */
-    void addToAlignmentNewSequence(const string &new_seq_name, const string &new_seq, const vector<int> &perm_col);
+    void addToAlignmentNewSequence(const string &new_seq_name, const string &new_seq);
 
     /**
      * Add new sequences to the alignment
      */
-    void addToAlignmentNewSequences(const vector<string> &new_seq_names, const vector<string> &new_seqs, const vector<int> &perm_col);
+    void addToAlignmentNewSequences(const vector<string> &new_seq_names, const vector<string> &new_seqs);
 
     /**
      * Get mutation from state

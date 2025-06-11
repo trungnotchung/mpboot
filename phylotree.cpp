@@ -5136,6 +5136,10 @@ void PhyloTree::printTransMatrices(Node *node, Node *dad) {
     FOR_NEIGHBOR_IT(node, dad, it)printTransMatrices((*it)->node, node);
 }
 
+/****************************************************************************
+ Place new samples onto the tree
+ ****************************************************************************/
+
 void PhyloTree::allocateMutationMemory(int num_column)
 {
     cur_missing_sample_mutations.resize(num_column);
