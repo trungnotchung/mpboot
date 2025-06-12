@@ -1058,41 +1058,41 @@ int PhyloTree::computeParsimonyBranch(PhyloNeighbor *dad_branch, PhyloNode *dad,
 			}
         }
     } else if (aln->num_states == 4 && aln->seq_type == SEQ_DNA) {
-    	// ULTRAFAST VERSION FOR DNA
-        for (ptn = 0; ptn < aln->size(); ptn += 8)
-        {
-            UINT states_left = node_branch->partial_pars[ptn / 8];
-            UINT states_right = dad_branch->partial_pars[ptn / 8];
-            UINT states_dad = 0;
-            int maxi = aln->size() - ptn;
-            if (maxi > 8)
-                maxi = 8;
-            for (i = 0; i < maxi; i++)
-            {
-                UINT state_left = (states_left >> (i * 4)) & 15;
-                UINT state_right = (states_right >> (i * 4)) & 15;
-                UINT state_both = state_left | (state_right << 4);
-                // cout << state_left << " " << states_right << " " << state_right << " " << dna_fitch_result[state_both] << endl;
-                states_dad |= dna_fitch_result[state_both] << (i * 4);
-                tree_pars += dna_fitch_step[state_both] * aln->at(ptn + i).frequency;
-                _pattern_pars[ptn + i] = node_branch->partial_pars[ptn_pars_start_id + ptn + i] +
-                                         dad_branch->partial_pars[ptn_pars_start_id + ptn + i] + dna_fitch_step[state_both];
-            }
-            if (add_row) {
-                for (int i = 0; i < maxi; ++i) {
-                    for (int j = 0; j < 4; ++j) {
-                        if (states_dad & (1 << (i * 4 + j))) {
-                            for (int k = j + 1; k < 4; ++k) {
-                                if (states_dad & (1 << (i * 4 + k))) {
-                                    states_dad ^= (1 << (i * 4 + k));
-                                }
-                            }
-                            break;
-                        }
-                    }
-                }
-                root_states[ptn / 8] = states_dad;
-            }
+		// ULTRAFAST VERSION FOR DNA
+		for (ptn = 0; ptn < aln->size(); ptn += 8)
+		{
+			UINT states_left = node_branch->partial_pars[ptn / 8];
+			UINT states_right = dad_branch->partial_pars[ptn / 8];
+			UINT states_dad = 0;
+			int maxi = aln->size() - ptn;
+			if (maxi > 8)
+				maxi = 8;
+			for (i = 0; i < maxi; i++)
+			{
+				UINT state_left = (states_left >> (i * 4)) & 15;
+				UINT state_right = (states_right >> (i * 4)) & 15;
+				UINT state_both = state_left | (state_right << 4);
+				// cout << state_left << " " << states_right << " " << state_right << " " << dna_fitch_result[state_both] << endl;
+				states_dad |= dna_fitch_result[state_both] << (i * 4);
+				tree_pars += dna_fitch_step[state_both] * aln->at(ptn + i).frequency;
+				_pattern_pars[ptn + i] = node_branch->partial_pars[ptn_pars_start_id + ptn + i] +
+											dad_branch->partial_pars[ptn_pars_start_id + ptn + i] + dna_fitch_step[state_both];
+			}
+			if (add_row) {
+				for (int i = 0; i < maxi; ++i) {
+					for (int j = 0; j < 4; ++j) {
+						if (states_dad & (1 << (i * 4 + j))) {
+							for (int k = j + 1; k < 4; ++k) {
+								if (states_dad & (1 << (i * 4 + k))) {
+									states_dad ^= (1 << (i * 4 + k));
+								}
+							}
+							break;
+						}
+					}
+				}
+				root_states[ptn / 8] = states_dad;
+			}
         }
     } else if (aln->num_states == 20 && aln->seq_type == SEQ_PROTEIN) {
     	// ULTRAFAST VERSION FOR PROTEIN
