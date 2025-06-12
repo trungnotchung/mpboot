@@ -158,11 +158,11 @@ void checkCorectTree(char *origin_tree_file, char *new_tree_file) {
 	new_tree->readTree(new_tree_file, new_tree_is_rooted);
 
 	vector<string> origin_tree_leaves_name;
-	origin_tree->getLeafName(origin_tree_leaves_name);
+	origin_tree->getLeavesName(origin_tree_leaves_name);
 
 	new_tree->assignRoot(origin_tree_leaves_name[0]);
 	sort(origin_tree_leaves_name.begin(), origin_tree_leaves_name.end());
-	new_tree->initInfoNode(origin_tree_leaves_name);
+	new_tree->initNodeData(origin_tree_leaves_name);
 
 	if (new_tree->compareTree(origin_tree)) {
 		cout << "Finish checking correct tree: Correct tree detected\n";
