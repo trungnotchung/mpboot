@@ -217,32 +217,20 @@ public:
  */
 typedef vector<PhyloNode *> PhyloNodeVector;
 
-class CandidateNode
+class PlacementCandidateNode
 {
 public:
     PhyloNode *node;
     PhyloNeighbor *node_branch;
     std::vector<Mutation> *missing_sample_mutations;
+    std::vector<Mutation> *excess_mutations;
 
     int *best_set_difference;
-    int *set_difference;
     size_t *best_node_num_leaves;
-    size_t distance;
-    size_t *best_distance;
-    size_t index;
-    size_t *best_index;
-    size_t *num_best;
     PhyloNode *best_node;
     PhyloNeighbor *best_node_branch;
 
-    std::vector<bool> *node_has_unique;
-    std::vector<size_t> *best_j_vec;
-
-    bool *has_unique;
-
-    std::vector<Mutation> *excess_mutations;
-
-    CandidateNode()
+    PlacementCandidateNode()
     {
     }
 };

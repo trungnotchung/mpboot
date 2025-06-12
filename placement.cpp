@@ -8,6 +8,8 @@
 #include "mutation.h"
 #include "placement.h"
 
+const int VCF_HEADER_LINES = 12;  // Number of header lines in VCF file
+const int BATCH_SIZE = 8;         // Number of columns to process in each batch
 void initAlignment(IQTree *tree, Alignment *alignment, vector<int> &rotated_permutation_column) {
 	int nsite = rotated_permutation_column.size();
 	vector<int> perm_col(nsite);
@@ -64,7 +66,7 @@ int readVCFFile(IQTree *tree, Alignment*& alignment, Params &params) {
 	in.exceptions(ios::badbit);
 
 	// Read first 12 lines and create tree alignment
-	int totalColumn = readInitialAlignment(in, "temp.vcf", 12) - 1; // Read first 12 lines and write to temp.vcf
+	int totalColumn = readInitialAlignment(in, "temp.vcf", VCF_HEADER_LINES) - 1; // Read header lines and write to temp.vcf
 	alignment = new Alignment("temp.vcf", params.sequence_type, params.intype, params.num_existing_sequences);
 	alignment->ungroupSitePattern();
 	std::remove("temp.vcf");
@@ -75,7 +77,8 @@ int readVCFFile(IQTree *tree, Alignment*& alignment, Params &params) {
 	initAlignment(tree, alignment, rotatedColumnPermutation);
 
 	while (true) {
-		int numProcessedColumn = (alignment)->readPartialVCF(in, params.sequence_type, rotatedColumnPermutation, params.num_existing_sequences, totalColumn, 8);
+		int numProcessedColumn = (alignment)->readPartialVCF(in, params.sequence_type, rotatedColumnPermutation, 
+			params.num_existing_sequences, totalColumn, BATCH_SIZE);
 		if (numProcessedColumn == 0)
 			break;
 		tree->clearAllPartialLH();
@@ -109,42 +112,24 @@ void placeNewSamplesOntoExistingTree(Params &params) {
 	auto start_time = getCPUTime();
 	for (int i = 0; i < num_sequences; ++i) {
 		vector<pair<PhyloNode *, PhyloNeighbor *>> bfs = tree->breadth_first_expansion();
-		int total_nodes = (int)bfs.size();
-
-		CandidateNode inp;
+		PlacementCandidateNode input;
 		int best_set_difference = INT_MAX;
 		size_t best_node_num_leaves = INT_MAX;
-		size_t best_distance = INT_MAX;
 		std::vector<Mutation> excess_mutations;
-		std::vector<bool> node_has_unique(total_nodes, false);
-		bool best_node_has_unique = false;
-		size_t best_index = 0;
 
-		inp.best_set_difference = &best_set_difference;
-		inp.best_node_num_leaves = &best_node_num_leaves;
-		inp.best_distance = &best_distance;
-		inp.node = (PhyloNode *)tree->root->neighbors[0]->node;
-		inp.node_branch = (PhyloNeighbor *)inp.node->findNeighbor(tree->root);
-		inp.missing_sample_mutations = &alignment->missing_sample_mutations[i];
-		inp.excess_mutations = &excess_mutations;
-		inp.has_unique = &best_node_has_unique;
-		inp.node_has_unique = &(node_has_unique);
-		inp.best_index = &best_index;
+		input.best_set_difference = &best_set_difference;
+		input.best_node_num_leaves = &best_node_num_leaves;
+		input.node = (PhyloNode *)tree->root->neighbors[0]->node;
+		input.node_branch = (PhyloNeighbor *)input.node->findNeighbor(tree->root);
+		input.missing_sample_mutations = &alignment->missing_sample_mutations[i];
+		input.excess_mutations = &excess_mutations;
 
-		tree->initDataCalculatePlacementMutation(inp);
-		tree->optimizedCalculatePlacementMutation(inp, 0, true);
-
-		for (int j = 0; j < total_nodes; ++j) {
-			if (inp.best_node == bfs[j].first) {
-				best_index = j;
-			}
-		}
-		*inp.best_set_difference = INT_MAX;
-		inp.index = best_index;
-		inp.node = bfs[best_index].first;
-		inp.node_branch = bfs[best_index].second;
-		tree->calculatePlacementMutation(inp, false, true);
-		tree->addNewSample(bfs[best_index].first, bfs[best_index].second, excess_mutations, i, alignment->missing_seq_names[i]);
+		tree->initDataPlaceNewSample(input);
+		tree->optimizedFindPositionPlaceNewSample(input, 0);
+		input.node = input.best_node;
+		input.node_branch = input.best_node_branch;
+		tree->computeExcessMutations(input);
+		tree->addNewSample(input.best_node, input.best_node_branch, excess_mutations, i, alignment->missing_seq_names[i]);
 	}
 
 	alignment->addToAlignmentNewSequences(alignment->missing_seq_names, alignment->missing_sequences);

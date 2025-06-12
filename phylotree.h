@@ -342,12 +342,12 @@ public:
     /**
      * Calculate placement mutation for a candidate node
      */
-    void calculatePlacementMutation(CandidateNode &input, bool compute_parsimony_scores = false, bool compute_vecs = false);
+    void computeExcessMutations(PlacementCandidateNode &input);
 
     /**
      * Initialize data for calculatePlacementMutation
      */
-    void initDataCalculatePlacementMutation(CandidateNode &inp);
+    void initDataPlaceNewSample(PlacementCandidateNode &inp);
 
     /**
      * Erase a mutation from the candidate node
@@ -362,7 +362,7 @@ public:
     /**
      * Optimize the placement mutation for a candidate node
      */
-    void optimizedCalculatePlacementMutation(CandidateNode &input, int set_difference = 0, bool firstNode = false);
+    void optimizedFindPositionPlaceNewSample(PlacementCandidateNode &input, int set_difference = 0);
 
     /**
      * Add a new sample to the tree
