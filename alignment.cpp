@@ -995,11 +995,9 @@ char Alignment::convertStateBack(char state) {
     }
 }
 
-char Alignment::getMutationFromState(char state)
-{
+char Alignment::getMutationFromState(char state) {
     int value = convertState(state, SEQ_DNA);
-    switch (value)
-    {
+    switch (value) {
     case 0:
         return 1;
     case 1:
@@ -1035,8 +1033,7 @@ char Alignment::getMutationFromState(char state)
     }
 }
 
-int Alignment::getStateFromMutation(int nuc)
-{
+int Alignment::getStateFromMutation(int nuc) {
     int value;
     if ((nuc & (nuc - 1)) == 0)
         value = log2(nuc);
@@ -1288,22 +1285,18 @@ int Alignment::buildPattern(StrVector &sequences, char *sequence_type, int nseq,
     return 1;
 }
 
-void split(const string &s, vector<string> &elems, const string &delim)
-{
+void split(const string &s, vector<string> &elems, const string &delim) {
     elems.clear();
     size_t pos = 0;
     size_t len = s.length();
     size_t delim_len = delim.length();
-    if (delim_len == 0)
-    {
+    if (delim_len == 0) {
         elems.push_back(s);
         return;
     }
-    while (pos < len)
-    {
+    while (pos < len) {
         size_t find_pos = s.find(delim, pos);
-        if (find_pos == string::npos)
-        {
+        if (find_pos == string::npos) {
             elems.push_back(s.substr(pos));
             return;
         }
@@ -1313,8 +1306,7 @@ void split(const string &s, vector<string> &elems, const string &delim)
 }
 
 // Find the permutation of columns after rotation
-vector<int> Alignment::findRotatedColumnPermutation()
-{
+vector<int> Alignment::findRotatedColumnPermutation() {
     assert(getNSite() == (int)initial_column_state.size());
     char char_to_state[NUM_CHAR];
     computeUnknownState();
@@ -1323,28 +1315,24 @@ vector<int> Alignment::findRotatedColumnPermutation()
     vector<int> perm(getNSite(), 0);
     map<Pattern, vector<int>> pattern_map;
     // Build pattern map
-    for (int i = 0; i < getNSite(); ++i)
-    {
-        Pattern ptn = getPattern(i);
-        pattern_map[ptn].push_back(i);
+    for (int i = 0; i < getNSite(); ++i) {
+        Pattern pattern = getPattern(i);
+        pattern_map[pattern].push_back(i);
     }
-    for (int col = 0; col < getNSite(); ++col)
-    {
+    for (int col = 0; col < getNSite(); ++col) {
         // For each column, build a pattern
         // Find initial index of the pattern
-        Pattern nptn;
-        for (int i = 0; i < initial_column_state[col].length(); ++i)
-        {
-            nptn += char_to_state[(int)initial_column_state[col][i]];
+        Pattern pattern;
+        for (int i = 0; i < initial_column_state[col].length(); ++i) {
+            pattern += char_to_state[(int)initial_column_state[col][i]];
         }
-        perm[pattern_map[nptn].back()] = col;
-        pattern_map[nptn].pop_back();
+        perm[pattern_map[pattern].back()] = col;
+        pattern_map[pattern].pop_back();
     }
     return perm;
 }
 
-void Alignment::addToAlignmentNewSequence(const string &new_name, const string &new_seq)
-{
+void Alignment::addToAlignmentNewSequence(const string &new_name, const string &new_seq) {
     assert(new_seq.size() == getNSite());
     char char_to_state[NUM_CHAR];
     computeUnknownState();
@@ -1355,41 +1343,35 @@ void Alignment::addToAlignmentNewSequence(const string &new_name, const string &
     vector<int> new_site_patterns;
     vector<int> perm_col = findRotatedColumnPermutation();
 
-    for (int i = 0; i < getNSite(); ++i)
-    {
+    for (int i = 0; i < getNSite(); ++i) {
         Pattern new_pattern = getPattern(i);
         new_pattern.push_back(char_to_state[(int)new_seq[perm_col[i]]]);
         PatternIntMap::iterator pat_it = new_pattern_index.find(new_pattern);
-        if (pat_it == new_pattern_index.end())
-        { // not found
+        if (pat_it == new_pattern_index.end()) {
             new_pattern.frequency = 1;
             new_pattern.computeConst(STATE_UNKNOWN);
             new_patterns.push_back(new_pattern);
             new_pattern_index[new_pattern] = new_patterns.size() - 1;
             new_site_patterns.push_back(new_patterns.size() - 1);
         }
-        else
-        {
+        else {
             int index = pat_it->second;
             new_patterns[index].frequency++;
             new_site_patterns.push_back(index);
         }
     }
     clear();
-    for (vector<Pattern>::iterator it = new_patterns.begin(); it != new_patterns.end(); ++it)
-    {
+    for (vector<Pattern>::iterator it = new_patterns.begin(); it != new_patterns.end(); ++it) {
         push_back(*it);
     }
     pattern_index = new_pattern_index;
     site_pattern = new_site_patterns;
     seq_names.push_back(new_name);
     buildSeqStates();
-    // checkSeqName();
     countConstSite();
 }
 
-void Alignment::addToAlignmentNewSequences(const vector<string> &new_seq_names, const vector<string> &new_sequences)
-{
+void Alignment::addToAlignmentNewSequences(const vector<string> &new_seq_names, const vector<string> &new_sequences) {
     char char_to_state[NUM_CHAR];
     computeUnknownState();
     buildStateMap(char_to_state, seq_type);
@@ -1400,44 +1382,37 @@ void Alignment::addToAlignmentNewSequences(const vector<string> &new_seq_names, 
     int nseq = new_sequences.size();
     vector<int> perm_col = findRotatedColumnPermutation();
 
-    for (int site = 0; site < getNSite(); ++site)
-    {
+    for (int site = 0; site < getNSite(); ++site) {
         Pattern new_pattern = getPattern(site);
-        for (int seq = 0; seq < nseq; ++seq)
-        {
+        for (int seq = 0; seq < nseq; ++seq) {
             new_pattern.push_back(char_to_state[(int)new_sequences[seq][perm_col[site]]]);
         }
         PatternIntMap::iterator pat_it = new_pattern_index.find(new_pattern);
-        if (pat_it == new_pattern_index.end())
-        { // not found
+        if (pat_it == new_pattern_index.end()) {
             new_pattern.frequency = 1;
             new_pattern.computeConst(STATE_UNKNOWN);
             new_patterns.push_back(new_pattern);
             new_pattern_index[new_pattern] = new_patterns.size() - 1;
             new_site_patterns.push_back(new_patterns.size() - 1);
         }
-        else
-        {
+        else {
             int index = pat_it->second;
             new_patterns[index].frequency++;
             new_site_patterns.push_back(index);
         }
     }
     clear();
-    for (vector<Pattern>::iterator it = new_patterns.begin(); it != new_patterns.end(); ++it)
-    {
+    for (vector<Pattern>::iterator it = new_patterns.begin(); it != new_patterns.end(); ++it) {
         push_back(*it);
     }
     pattern_index = new_pattern_index;
     site_pattern = new_site_patterns;
     seq_names.insert(seq_names.end(), new_seq_names.begin(), new_seq_names.end());
     buildSeqStates();
-    // checkSeqName();
     countConstSite();
 }
 
-void Alignment::updateAlignmentNewSequences(const vector<string> &new_sequences, const vector<int> &perm_col)
-{
+void Alignment::updateAlignmentNewSequences(const vector<string> &new_sequences, const vector<int> &perm_col) {
     computeUnknownState();
     char char_to_state[NUM_CHAR];
     buildStateMap(char_to_state, seq_type);
@@ -1448,16 +1423,13 @@ void Alignment::updateAlignmentNewSequences(const vector<string> &new_sequences,
     int nseq = new_sequences.size();
     int nsite = getNSite();
 
-    for (int site = 0; site < nsite; ++site)
-    {
+    for (int site = 0; site < nsite; ++site) {
         Pattern new_pattern;
-        for (int seq = 0; seq < nseq; ++seq)
-        {
+        for (int seq = 0; seq < nseq; ++seq) {
             new_pattern.push_back(char_to_state[(int)new_sequences[seq][perm_col[site]]]);
         }
         PatternIntMap::iterator pat_it = new_pattern_index.find(new_pattern);
-        if (pat_it == new_pattern_index.end())
-        {
+        if (pat_it == new_pattern_index.end()) {
             // If pattern not found, add new pattern
             new_pattern.frequency = 1;
             new_pattern.computeConst(STATE_UNKNOWN);
@@ -1465,8 +1437,7 @@ void Alignment::updateAlignmentNewSequences(const vector<string> &new_sequences,
             new_pattern_index[new_pattern] = new_patterns.size() - 1;
             new_site_patterns.push_back(new_patterns.size() - 1);
         }
-        else
-        {
+        else {
             // If pattern found, increment frequency
             int index = pat_it->second;
             new_patterns[index].frequency++;
@@ -1474,8 +1445,7 @@ void Alignment::updateAlignmentNewSequences(const vector<string> &new_sequences,
         }
     }
     clear();
-    for (vector<Pattern>::iterator itr = new_patterns.begin(); itr != new_patterns.end(); ++itr)
-    {
+    for (vector<Pattern>::iterator itr = new_patterns.begin(); itr != new_patterns.end(); ++itr) {
         push_back(*itr);
     }
     pattern_index = new_pattern_index;
@@ -1485,10 +1455,8 @@ void Alignment::updateAlignmentNewSequences(const vector<string> &new_sequences,
 }
 
 // Read partial VCF file and update alignment
-int Alignment::readPartialVCF(ifstream &in, char *sequence_type, vector<int> &perm_col, int existing_sequence, int start_index, int num_column)
-{
-    if (in.eof())
-    {
+int Alignment::readPartialVCF(ifstream &in, char *sequence_type, vector<int> &perm_col, int existing_sequence, int start_index, int num_column) {
+    if (in.eof()) {
         return 0;
     }
     StrVector sequences;
@@ -1501,8 +1469,7 @@ int Alignment::readPartialVCF(ifstream &in, char *sequence_type, vector<int> &pe
     sequences.resize(nseq, "");
     existing_sample_mutations.assign(nseq, vector<Mutation>());
 
-    for (; !in.eof() && num_processed_column < num_column;)
-    {
+    for (; !in.eof() && num_processed_column < num_column;) {
         getline(in, line);
         if (line == "")
             continue;
@@ -1523,49 +1490,38 @@ int Alignment::readPartialVCF(ifstream &in, char *sequence_type, vector<int> &pe
         cur_mut.ref_nuc = getMutationFromState(words[3][0]);
         if (reference_nuc[cur_mut.position] == 0)
             reference_nuc[cur_mut.position] = cur_mut.ref_nuc;
-        for (int i = 9; i < words.size(); ++i)
-        {
+        for (int i = 9; i < words.size(); ++i) {
             cur_mut.is_missing = false;
-            if (isdigit(words[i][0]))
-            {
+            if (isdigit(words[i][0])) {
                 int allele_id = std::stoi(words[i]);
-                if (allele_id > 0)
-                {
+                if (allele_id > 0) {
                     std::string allele = alleles[allele_id - 1];
-                    if (i - 9 < existing_sequence)
-                    {
+                    if (i - 9 < existing_sequence) {
                         sequences[i - 9].push_back(allele[0]);
                     }
                     cur_mut.mut_nuc = getMutationFromState(allele[0]);
                 }
-                else
-                {
-                    if (i - 9 < existing_sequence)
-                    {
+                else {
+                    if (i - 9 < existing_sequence) {
                         sequences[i - 9].push_back(words[3][0]);
                     }
                     cur_mut.mut_nuc = getMutationFromState(words[3][0]);
                 }
             }
-            else
-            {
-                if (i - 9 < existing_sequence)
-                {
+            else {
+                if (i - 9 < existing_sequence) {
                     sequences[i - 9].push_back('-');
                 }
                 cur_mut.mut_nuc = getMutationFromState('N');
                 cur_mut.is_missing = true;
             }
-            if (i - 9 >= existing_sequence)
-            {
-                if (cur_mut.mut_nuc != cur_mut.ref_nuc)
-                {
+            if (i - 9 >= existing_sequence) {
+                if (cur_mut.mut_nuc != cur_mut.ref_nuc) {
                     cur_mut.par_nuc = cur_mut.ref_nuc;
                     missing_sample_mutations[i - 9 - existing_sequence].push_back(cur_mut);
                 }
             }
-            else
-            {
+            else {
                 existing_sample_mutations[i - 9].push_back(cur_mut);
             }
         }
@@ -1574,12 +1530,10 @@ int Alignment::readPartialVCF(ifstream &in, char *sequence_type, vector<int> &pe
     }
 
     // If not enough columns, rebuild pattern and return
-    if (num_processed_column < num_column)
-    {
+    if (num_processed_column < num_column) {
         buildPattern(sequences, sequence_type, nseq, nsite);
         initial_column_state.assign(nsite, "");
-        for (int seq = 0; seq < nseq; ++seq)
-        {
+        for (int seq = 0; seq < nseq; ++seq) {
             for (int site = 0; site < nsite; ++site)
                 initial_column_state[site] += sequences[seq][site];
         }
@@ -1592,8 +1546,7 @@ int Alignment::readPartialVCF(ifstream &in, char *sequence_type, vector<int> &pe
     return num_processed_column;
 }
 
-int Alignment::readVCF(char *filename, char *sequence_type, int existing_sequence)
-{
+int Alignment::readVCF(char *filename, char *sequence_type, int existing_sequence) {
     StrVector sequences;
     ifstream in;
     in.exceptions(ios::failbit | ios::badbit);
@@ -1606,8 +1559,7 @@ int Alignment::readVCF(char *filename, char *sequence_type, int existing_sequenc
     in.exceptions(ios::badbit);
     int num_processed_column = 0;
 
-    for (; !in.eof();)
-    {
+    for (; !in.eof();) {
         getline(in, line);
         if (line == "")
             continue;
@@ -1615,18 +1567,14 @@ int Alignment::readVCF(char *filename, char *sequence_type, int existing_sequenc
         split(line, words, "\t");
         if (words.size() == 1)
             continue;
-        if (words[1] == "POS")
-        {
+        if (words[1] == "POS") {
             // Sample names start from the 10th word in the header
-            for (int i = 9; i < words.size(); i++)
-            {
-                if (i - 9 >= existing_sequence)
-                {
+            for (int i = 9; i < words.size(); i++) {
+                if (i - 9 >= existing_sequence) {
                     missing_seq_names.push_back(words[i]);
                     num_missing_sequence++;
                 }
-                else
-                {
+                else {
                     seq_names.push_back(words[i]);
                     nseq++;
                 }
@@ -1636,8 +1584,7 @@ int Alignment::readVCF(char *filename, char *sequence_type, int existing_sequenc
             existing_sample_mutations.resize(nseq);
             missing_sample_mutations.resize(num_missing_sequence);
         }
-        else
-        {
+        else {
             if (words.size() != 9 + nseq + num_missing_sequence)
                 throw "Number of columns in VCF file is not consistent";
             vector<string> alleles;
@@ -1651,14 +1598,11 @@ int Alignment::readVCF(char *filename, char *sequence_type, int existing_sequenc
             cur_mut.ref_nuc = getMutationFromState(words[3][0]);
             if (reference_nuc[cur_mut.position] == 0)
                 reference_nuc[cur_mut.position] = cur_mut.ref_nuc;
-            for (int i = 9; i < words.size(); ++i)
-            {
+            for (int i = 9; i < words.size(); ++i) {
                 cur_mut.is_missing = false;
-                if (isdigit(words[i][0]))
-                {
+                if (isdigit(words[i][0])) {
                     int allele_id = std::stoi(words[i]);
-                    if (allele_id > 0)
-                    {
+                    if (allele_id > 0) {
                         std::string allele = alleles[allele_id - 1];
                         if (i - 9 < existing_sequence)
                             sequences[i - 9].push_back(allele[0]);
@@ -1667,8 +1611,7 @@ int Alignment::readVCF(char *filename, char *sequence_type, int existing_sequenc
 
                         cur_mut.mut_nuc = getMutationFromState(allele[0]);
                     }
-                    else
-                    {
+                    else {
                         if (i - 9 < existing_sequence)
                             sequences[i - 9].push_back(words[3][0]);
                         else
@@ -1677,8 +1620,7 @@ int Alignment::readVCF(char *filename, char *sequence_type, int existing_sequenc
                         cur_mut.mut_nuc = getMutationFromState(words[3][0]);
                     }
                 }
-                else
-                {
+                else {
                     if (i - 9 < existing_sequence)
                         sequences[i - 9].push_back('-');
                     else
@@ -1686,10 +1628,8 @@ int Alignment::readVCF(char *filename, char *sequence_type, int existing_sequenc
                     cur_mut.mut_nuc = getMutationFromState('N');
                     cur_mut.is_missing = true;
                 }
-                if (i - 9 >= existing_sequence)
-                {
-                    if (cur_mut.mut_nuc != cur_mut.ref_nuc)
-                    {
+                if (i - 9 >= existing_sequence) {
+                    if (cur_mut.mut_nuc != cur_mut.ref_nuc) {
                         cur_mut.par_nuc = cur_mut.ref_nuc;
                         missing_sample_mutations[i - 9 - existing_sequence].push_back(cur_mut);
                     }
@@ -1702,8 +1642,7 @@ int Alignment::readVCF(char *filename, char *sequence_type, int existing_sequenc
         }
     }
     initial_column_state.assign(nsite, "");
-    for (int seq = 0; seq < nseq; ++seq)
-    {
+    for (int seq = 0; seq < nseq; ++seq) {
         for (int site = 0; site < nsite; ++site)
             initial_column_state[site] += sequences[seq][site];
     }
@@ -1714,7 +1653,6 @@ int Alignment::readVCF(char *filename, char *sequence_type, int existing_sequenc
 }
 
 int Alignment::readPhylip(char *filename, char *sequence_type) {
-
     StrVector sequences;
     ostringstream err_str;
     ifstream in;
