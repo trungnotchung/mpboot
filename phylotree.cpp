@@ -5808,7 +5808,7 @@ void PhyloTree::addNewSample(PhyloNode *best_node, PhyloNeighbor *best_node_bran
         current_node_mutations.emplace_back(node_mutation);
     }
 
-    best_node_branch->clear_mutations();
+    best_node_branch->clearMutations();
     --timer_regular;
     for (auto node_mutation : current_node_mutations) {
         visited_ancestral_mutations[node_mutation.compressed_position] = timer_regular;

@@ -39,13 +39,11 @@ public:
 
         @param alength length of branch
      */
-    PhyloNeighbor(Node *anode, double alength) : Neighbor(anode, alength)
-    {
+    PhyloNeighbor(Node *anode, double alength) : Neighbor(anode, alength) {
         partial_lh = NULL;
         partial_lh_computed = 0;
         lh_scale_factor = 0.0;
         partial_pars = NULL;
-        mutations.clear();
     }
 
     /**
@@ -54,29 +52,24 @@ public:
         @param alength length of branch
         @param aid branch ID
      */
-    PhyloNeighbor(Node *anode, double alength, int aid) : Neighbor(anode, alength, aid)
-    {
+    PhyloNeighbor(Node *anode, double alength, int aid) : Neighbor(anode, alength, aid) {
         partial_lh = NULL;
         partial_lh_computed = 0;
         lh_scale_factor = 0.0;
         partial_pars = NULL;
-        mutations.clear();
-        canMove = 0;
     }
 
     /**
         tell that the partial likelihood vector is not computed
      */
-    inline void clearPartialLh()
-    {
+    inline void clearPartialLh() {
         partial_lh_computed = 0;
     }
 
     /**
      *  tell that the partial likelihood vector is computed
      */
-    inline void unclearPartialLh()
-    {
+    inline void unclearPartialLh() {
         partial_lh_computed = 1;
     }
 
@@ -100,12 +93,7 @@ public:
     /**
      * Clear all mutations on this branch
      */
-    void clear_mutations();
-
-    /**
-     * Add a mutation to this branch
-     */
-    void add_mutation(Mutation mut);
+    void clearMutations();
 private:
     /**
         true if the partial likelihood was computed
@@ -131,11 +119,6 @@ private:
         vector containing the partial parsimony scores
      */
     UINT *partial_pars;
-
-    /**
-     * check if this branch can be movedor do SPR
-     */
-    int canMove;
 };
 
 /**
@@ -225,9 +208,7 @@ public:
     PhyloNode *best_node;
     PhyloNeighbor *best_node_branch;
 
-    PlacementCandidateNode()
-    {
-    }
+    PlacementCandidateNode() {}
 };
 
 #endif
