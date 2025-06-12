@@ -5215,7 +5215,7 @@ void PhyloTree::computePartialMutation(UINT *states_dad, vector<int> &perm_col, 
                 left_child_mut.compressed_position = compressed_perm_col[p];
                 left_child_mut.mut_nuc = (1 << left_child_nuc);
                 left_child_mut.par_nuc = (1 << dad_nuc);
-                left_child_mut.ref_nuc = aln->reference_nuc[left_child_mut.position];
+                left_child_mut.ref_nuc = aln->reference_nuc[left_child_mut.compressed_position];
                 left_branch->mutations.push_back(left_child_mut);
                 left_branch_mutations.push_back(make_pair(p, left_child_nuc));
             }
@@ -5242,7 +5242,7 @@ void PhyloTree::computePartialMutation(UINT *states_dad, vector<int> &perm_col, 
                 mut_r.compressed_position = compressed_perm_col[p];
                 mut_r.mut_nuc = (1 << right_child_nuc);
                 mut_r.par_nuc = (1 << dad_nuc);
-                mut_r.ref_nuc = aln->reference_nuc[mut_r.position];
+                mut_r.ref_nuc = aln->reference_nuc[mut_r.compressed_position];
                 right_branch->mutations.push_back(mut_r);
                 right_branch_mutations.push_back(make_pair(p, right_child_nuc));
             }
@@ -5335,7 +5335,7 @@ void PhyloTree::computeMutationBranch(vector<int> &perm_col, vector<int> &compre
                 left_child_mut.compressed_position = compressed_perm_col[col];
                 left_child_mut.mut_nuc = (1 << left_child_nuc);
                 left_child_mut.par_nuc = (1 << dad_nuc);
-                left_child_mut.ref_nuc = aln->reference_nuc[left_child_mut.position];
+                left_child_mut.ref_nuc = aln->reference_nuc[left_child_mut.compressed_position];
                 dad_branch->mutations.push_back(left_child_mut);
             }
             right_branch_states_dad[ptn / 8] ^= (1 << (i * 4 + left_child_nuc));
@@ -5355,7 +5355,7 @@ void PhyloTree::computeMutationBranch(vector<int> &perm_col, vector<int> &compre
                 right_child_mut.compressed_position = compressed_perm_col[col];
                 right_child_mut.mut_nuc = (1 << right_child_nuc);
                 right_child_mut.par_nuc = (1 << dad_nuc);
-                right_child_mut.ref_nuc = aln->reference_nuc[right_child_mut.position];
+                right_child_mut.ref_nuc = aln->reference_nuc[right_child_mut.compressed_position];
                 node_branch->mutations.push_back(right_child_mut);
             }
             left_branch_states_dad[ptn / 8] ^= (1 << (i * 4 + right_child_nuc));
@@ -5377,7 +5377,7 @@ void PhyloTree::initMutation(vector<int> &perm_col, vector<int> &compressed_perm
     for (int i = 0; i < nptn; ++i)
     {
         char root_nuc = ((root_states[ptn] >> (i * 4)) & 15);
-        char ref_nuc = aln->reference_nuc[perm_col[i]];
+        char ref_nuc = aln->reference_nuc[compressed_perm_col[i]];
         if ((root_nuc & ref_nuc) == 0)
         {
             char dad_nuc = 0;
