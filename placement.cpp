@@ -111,7 +111,7 @@ void placeNewSamplesOntoExistingTree(Params &params) {
 
 	auto start_time = getCPUTime();
 	for (int i = 0; i < num_sequences; ++i) {
-		vector<pair<PhyloNode *, PhyloNeighbor *>> bfs = tree->breadth_first_expansion();
+		tree->initNodeDataPlaceNewSample();
 		PlacementCandidateNode input;
 		int best_set_difference = INT_MAX;
 		size_t best_node_num_leaves = INT_MAX;
@@ -124,7 +124,7 @@ void placeNewSamplesOntoExistingTree(Params &params) {
 		input.missing_sample_mutations = &alignment->missing_sample_mutations[i];
 		input.excess_mutations = &excess_mutations;
 
-		tree->initDataPlaceNewSample(input);
+		tree->initNewSampleMutations(input);
 		tree->optimizedFindPositionPlaceNewSample(input, 0);
 		input.node = input.best_node;
 		input.node_branch = input.best_node_branch;

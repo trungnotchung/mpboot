@@ -98,11 +98,6 @@ public:
     int num_leaves;
 
     /**
-     * Distance to the root
-     */
-    int distance;
-
-    /**
      * Clear all mutations on this branch
      */
     void clear_mutations();

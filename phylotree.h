@@ -280,119 +280,193 @@ public:
     virtual ~PhyloTree();
 
     /**
-     * Add a row to the tree
+     * Flag indicating whether to add a new row to the tree
+     * Used in tree modification operations
      */
     bool add_row;
 
     /**
-     * Save the states of the root node
+     * Array storing the states of the root node
+     * Used for tracking ancestral states in phylogenetic analysis
      */
     UINT *root_states;
 
     /**
-     * Root mutations
+     * Vector storing mutations at the root node
+     * Contains information about mutations that occurred at the root of the tree
      */
     vector<Mutation> root_mutations;
 
     /**
-     * Allocate memory for mutation data
+     * Allocates memory for mutation data structures
+     * @param num_column Number of columns in the alignment to allocate memory for
      */
     void allocateMutationMemory(int num_column);
 
     /**
-     * Initialize mutation data for MAT
+     * Initializes mutation data for MAT
+     * @param perm_col Vector of column permutations
+     * @param compressed_perm_col Vector of compressed column permutations
      */
     void initMutation(vector<int> &perm_col, vector<int> &compressed_perm_col);
 
     /**
-     * Compute mutation for a branch
+     * Computes mutations along a specific branch
+     * @param perm_col Vector of column permutations
+     * @param compressed_perm_col Vector of compressed column permutations
+     * @param dad_branch Pointer to the branch being analyzed
+     * @param dad Pointer to the parent node
+     * @param branch_subst Optional pointer to store number of substitutions on branch
      */
     void computeMutationBranch(vector<int> &perm_col, vector<int> &compressed_perm_col, PhyloNeighbor *dad_branch, PhyloNode *dad, int *branch_subst = NULL);
 
     /**
-     * Compute partial mutation for a branch
+     * Computes partial mutations along a branch
+     * @param states_dad Array of parent node states
+     * @param perm_col Vector of column permutations
+     * @param compressed_perm_col Vector of compressed column permutations
+     * @param dad_branch Pointer to the branch being analyzed
+     * @param dad Pointer to the parent node
      */
     void computePartialMutation(UINT *states_dad, vector<int> &perm_col, vector<int> &compressed_perm_col, PhyloNeighbor *dad_branch, PhyloNode *dad);
 
     /**
-     * Compute parsimony score using mutation
+     * Computes parsimony score using mutation data
+     * @return The parsimony score based on mutations
      */
     int computeParsimonyScoreMutation();
 
     /**
-     * Compute parsimony score for a branch using mutation
+     * Computes parsimony score for a specific branch using mutation data
+     * @param dad_branch Pointer to the branch being analyzed
+     * @param dad Pointer to the parent node
+     * @param branch_subst Optional pointer to store number of substitutions on branch
+     * @return The parsimony score for the branch
      */
     int computeParsimonyBranchMutation(PhyloNeighbor *dad_branch, PhyloNode *dad, int *branch_subst = NULL);
 
     /**
-     * Compute partial parsimony score for a branch using mutation
+     * Computes partial parsimony score for a branch using mutation data
+     * @param dad_branch Pointer to the branch being analyzed
+     * @param dad Pointer to the parent node
+     * @return The partial parsimony score for the branch
      */
     int computePartialParsimonyMutation(PhyloNeighbor *dad_branch, PhyloNode *dad);
 
     /**
-     * Compute the breadth-first expansion of the vertices of the tree
+     * Initializes node data for placing new samples
+     * Computes breadth-first expansion of tree vertices
      */
-    std::vector<std::pair<PhyloNode *, PhyloNeighbor *>> breadth_first_expansion();
-
-    std::vector<Mutation> cur_excess_mutations, cur_missing_sample_mutations, cur_ancestral_mutations;
-    std::vector<int> visited_missing_sample_mutations, visited_ancestral_mutations;
-    std::vector<int> visited_excess_mutations;
-    int timer_optimized, timer_regular;
+    void initNodeDataPlaceNewSample();
 
     /**
-     * Calculate placement mutation for a candidate node
+     * Vector storing current excess mutations
+     */
+    vector<Mutation> current_excess_mutations;
+
+    /**
+     * Vector storing mutations from the missing sample
+     */
+    vector<Mutation> current_missing_sample_mutations;
+
+    /**
+     * Vector storing ancestral mutations
+     */
+    vector<Mutation> current_ancestral_mutations;
+
+    /**
+     * Vector storing time of visited missing sample mutations
+     */
+    vector<int> visited_missing_sample_mutations;
+
+    /**
+     * Vector storing time of visited ancestral mutations
+     */
+    vector<int> visited_ancestral_mutations;
+
+    /**
+     * Vector storing time of visited excess mutations
+     */
+    vector<int> visited_excess_mutations;
+
+    /**
+     * Timer for optimized operations
+     */
+    int timer_optimized;
+
+    /**
+     * Timer for regular operations
+     */
+    int timer_regular;
+
+    /**
+     * Calculates placement mutations for a candidate node
+     * @param input Reference to the placement candidate node
      */
     void computeExcessMutations(PlacementCandidateNode &input);
 
     /**
-     * Initialize data for calculatePlacementMutation
+     * Initializes data for calculating placement mutations
+     * @param inp Reference to the placement candidate node
      */
-    void initDataPlaceNewSample(PlacementCandidateNode &inp);
+    void initNewSampleMutations(PlacementCandidateNode &inp);
 
     /**
-     * Erase a mutation from the candidate node
+     * Erases a mutation from the excess mutations set
+     * @param erase_excess_mutations Vector of mutations to erase
+     * @param m The mutation to erase
+     * @param set_difference Reference to track the difference in mutation sets
      */
     void eraseMutation(vector<Mutation> &erase_excess_mutations, Mutation m, int &set_difference);
 
     /**
-     * Add a mutation to the candidate node
+     * Adds a mutation to the excess mutations set
+     * @param added_excess_mutations Vector of mutations to add
+     * @param m The mutation to add
+     * @param diff The difference value
+     * @param set_difference Reference to track the difference in mutation sets
      */
     void addMutation(vector<Mutation> &added_excess_mutations, Mutation m, int diff, int &set_difference);
 
     /**
-     * Optimize the placement mutation for a candidate node
+     * Optimizes function for finding the best position to place a new sample
+     * @param input Reference to the placement candidate node
+     * @param set_difference Optional difference in mutation sets
      */
     void optimizedFindPositionPlaceNewSample(PlacementCandidateNode &input, int set_difference = 0);
 
     /**
-     * Add a new sample to the tree
+     * Adds a new sample to the tree
+     * @param best_node Pointer to the best node for placement
+     * @param best_node_branch Pointer to the best branch for placement
+     * @param node_excess_mutations Vector of excess mutations for the node
+     * @param index Index of the new sample
+     * @param name Name of the new sample
      */
-    void addNewSample(PhyloNode *best_node, PhyloNeighbor *best_node_branch, std::vector<Mutation> node_excess_mutations, int index, std::string name);
+    void addNewSample(PhyloNode *best_node, PhyloNeighbor *best_node_branch, vector<Mutation> node_excess_mutations, int index, string name);
 
     /**
-     * Check mutations at a given position
+     * Verifies the correctness of mutations at a given position
      */
-    void checkMutation(vector<int> &pos);
+    void verifyMutationCorrectness();
 
     /**
-     * Check mutations on a branch
+     * Verifies mutations on a specific branch
+     * @param pos Vector of positions to verify
+     * @param dad_branch Pointer to the branch being verified
+     * @param dad Pointer to the parent node
+     * @param branch_subst Optional pointer to store number of substitutions
      */
-    void checkMutationBranch(vector<int> &pos, PhyloNeighbor *dad_branch, PhyloNode *dad, int *branch_subst = NULL);
+    void verifyMutationCorrectnessBranch(vector<int> &pos, PhyloNeighbor *dad_branch, PhyloNode *dad, int *branch_subst = NULL);
 
     /**
-     * Check partial mutation on a branch
+     * Verifies partial mutations on a branch
+     * @param pos Vector of positions to verify
+     * @param dad_branch Pointer to the branch being verified
+     * @param dad Pointer to the parent node
+     * @return String containing verification results
      */
-    string checkPartialMutation(vector<int> &pos, PhyloNeighbor *dad_branch, PhyloNode *dad);
-
-    /**
-     * Find a node by name
-     */
-    PhyloNode *findNode(PhyloNode *node, PhyloNode *dad, string name);
-
-    /**
-     * Find a node by name
-     */
-    PhyloNode *findNode(string name);
+    string verifyPartialMutationCorrectness(vector<int> &pos, PhyloNeighbor *dad_branch, PhyloNode *dad);
 
     /**
             copy the phylogenetic tree structure into this tree, override to take sequence names
