@@ -419,12 +419,12 @@ struct Params {
         /**
          *  Number of starting row
          */
-        int num_existing_sample;
+        int num_existing_sequences;
 
         /**
          * Number of adding row
          */
-        int num_missing_sample;
+        int num_missing_sequences;
 
         /**
          * Tree file name

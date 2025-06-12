@@ -682,11 +682,6 @@ public:
      */
     int readVCF(char *file_name, char *sequence_type, int existing_sequence);
 
-    /**
-     * Get number of sequence
-     */
-    static int getNumberSequence(char *file_name);
-
 protected:
 
 

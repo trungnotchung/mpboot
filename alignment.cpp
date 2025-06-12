@@ -1311,30 +1311,6 @@ void split(const string &s, vector<string> &elems, const string &delim)
         pos = find_pos + delim_len;
     }
 }
-int Alignment::getNumberSequence(char *file_name)
-{
-	ifstream in;
-	in.exceptions(ios::failbit | ios::badbit);
-	in.open(file_name);
-	string line;
-	in.exceptions(ios::badbit);
-
-	for (; !in.eof();)
-	{
-		getline(in, line);
-        if (line == "")
-            continue;
-        vector<string> words;
-        split(line, words, "\t");
-        if (words.size() == 1)
-            continue;
-        if (words[1] == "POS")
-		{
-			return words.size() - 9;
-		}
-	}
-    throw "Cannot find number of sequence in alignment file\n";
-}
 
 // Find the permutation of columns after rotation
 vector<int> Alignment::findRotatedColumnPermutation()

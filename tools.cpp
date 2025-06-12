@@ -552,8 +552,8 @@ void get2RandNumb(const int size, int &first, int &second) {
 
 void parseArg(int argc, char *argv[], Params &params) {
     int cnt;
-	params.num_existing_sample = INT_MAX;
-	params.num_missing_sample = 0;
+	params.num_existing_sequences = INT_MAX;
+	params.num_missing_sequences = 0;
 	params.mutation_tree_file = NULL;
 	params.ppon = false;
 	params.pp_verify_preserved_tree = false;
@@ -871,13 +871,13 @@ void parseArg(int argc, char *argv[], Params &params) {
 			if (strcmp(argv[cnt], "-pp_n") == 0)
 			{
 				cnt++;
-				params.num_existing_sample = convert_int(argv[cnt]);
+				params.num_existing_sequences = convert_int(argv[cnt]);
 				continue;
 			}
 			if (strcmp(argv[cnt], "-pp_k") == 0)
 			{
 				cnt++;
-				params.num_missing_sample = convert_int(argv[cnt]);
+				params.num_missing_sequences = convert_int(argv[cnt]);
 				continue;
 			}
 			if (strcmp(argv[cnt], "-pp_tree") == 0)
