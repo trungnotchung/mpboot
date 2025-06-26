@@ -8,7 +8,7 @@
 #include "mutation.h"
 #include "placement.h"
 
-const int VCF_HEADER_LINES = 20;  // Number of header lines in VCF file
+const int VCF_HEADER_LINES = 12;  // Number of header lines in VCF file
 const int BATCH_SIZE = 8;         // Number of columns to process in each batch
 void initAlignment(IQTree *tree, Alignment *alignment, vector<int> &rotated_permutation_column) {
 	int nsite = rotated_permutation_column.size();
