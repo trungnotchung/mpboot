@@ -857,6 +857,11 @@ void parseArg(int argc, char *argv[], Params &params) {
 #endif
                 continue;
             }
+			if (strcmp(argv[cnt], "-pp_opt_read_vcf") == 0)
+			{
+				params.pp_opt_read_vcf = true;
+				continue;
+			}
 			if (strcmp(argv[cnt], "-pp_on") == 0)
 			{
 				params.ppon = true;

@@ -50,7 +50,8 @@ int readInitialAlignment(ifstream &in_file_stream, char *out_file_name, int num_
 }
 
 int readVCFFile(IQTree *tree, Alignment*& alignment, Params &params) {
-	if (params.num_existing_sequences + params.num_missing_sequences <= MAX_SEQUENCE) {
+	if (params.pp_opt_read_vcf == false) {
+	// if (params.pp_opt_read_vcf == false || params.num_existing_sequences + params.num_missing_sequences <= MAX_SEQUENCE) {
 		alignment = new Alignment(params.aln_file, params.sequence_type, params.intype, params.num_existing_sequences);
 		tree->setAlignment(alignment);
 		tree->aln = alignment;
@@ -98,45 +99,56 @@ void placeNewSamplesOntoExistingTree(Params &params) {
 	bool is_rooted = false;
 
 	tree->readTree(params.mutation_tree_file, is_rooted);
-	int sequence_length = readVCFFile(tree, alignment, params) + 1;
+
+	int sequence_length;
+	{
+		Timer timer("Time read vcf file");
+		MemoryTracker memory_tracker("Peak memory growth when readVCFFile");
+		sequence_length = readVCFFile(tree, alignment, params) + 1;
+	}
 	// Init new tree's memory
 	tree->allocateMutationMemory(sequence_length);
 	// free memory
-	delete[] tree->root_states;
+	delete[] tree->root_states;	
 	tree->add_row = false;
-	cout << "Tree parsimony after init mutations: " << tree->computeParsimonyScoreMutation() << '\n';
+	{
+		Timer timer("Time init mutations");
+		cout << "Tree parsimony after init mutations: " << tree->computeParsimonyScoreMutation() << '\n';
+	}
 
 	cout << "\n========== Starting placement core ==========\n";
 	int num_sequences = min((int)alignment->missing_sample_mutations.size(), params.num_missing_sequences);
 
-	auto start_time = getCPUTime();
-	for (int i = 0; i < num_sequences; ++i) {
-		tree->initNodeDataPlaceNewSample();
-		PlacementCandidateNode input;
-		int best_set_difference = INT_MAX;
-		size_t best_node_num_leaves = INT_MAX;
-		std::vector<Mutation> excess_mutations;
+	{
+		Timer timer("Time placement");
 
-		input.best_set_difference = &best_set_difference;
-		input.best_node_num_leaves = &best_node_num_leaves;
-		input.node = (PhyloNode *)tree->root->neighbors[0]->node;
-		input.node_branch = (PhyloNeighbor *)input.node->findNeighbor(tree->root);
-		input.missing_sample_mutations = &alignment->missing_sample_mutations[i];
-		input.excess_mutations = &excess_mutations;
+		for (int i = 0; i < num_sequences; ++i) {
+			tree->initNodeDataPlaceNewSample();
+			PlacementCandidateNode input;
+			int best_set_difference = INT_MAX;
+			size_t best_node_num_leaves = INT_MAX;
+			std::vector<Mutation> excess_mutations;
 
-		tree->initNewSampleMutations(input);
-		tree->optimizedFindPositionPlaceNewSample(input, 0);
-		input.node = input.best_node;
-		input.node_branch = input.best_node_branch;
-		tree->computeExcessMutations(input);
-		tree->addNewSample(input.best_node, input.best_node_branch, excess_mutations, i, alignment->missing_seq_names[i]);
+			input.best_set_difference = &best_set_difference;
+			input.best_node_num_leaves = &best_node_num_leaves;
+			input.node = (PhyloNode *)tree->root->neighbors[0]->node;
+			input.node_branch = (PhyloNeighbor *)input.node->findNeighbor(tree->root);
+			input.missing_sample_mutations = &alignment->missing_sample_mutations[i];
+			input.excess_mutations = &excess_mutations;
+
+			tree->initNewSampleMutations(input);
+			tree->optimizedFindPositionPlaceNewSample(input, 0);
+			input.node = input.best_node;
+			input.node_branch = input.best_node_branch;
+			tree->computeExcessMutations(input);
+			tree->addNewSample(input.best_node, input.best_node_branch, excess_mutations, i, alignment->missing_seq_names[i]);
+		}
+
+		alignment->addToAlignmentNewSequences(alignment->missing_seq_names, alignment->missing_sequences);
+
+		cout << "\n========== Finished placement core ==========\n";
 	}
-
-	alignment->addToAlignmentNewSequences(alignment->missing_seq_names, alignment->missing_sequences);
-
-	cout << "\n========== Finished placement core ==========\n";
-	cout << "Time: " << fixed << setprecision(3) << (double)(getCPUTime() - start_time) << " seconds\n";
-	cout << "Memory: " << getMemory() << " KB\n";
+	std::cout << "Memory: " << getMemory() << " KB\n";
 	
 	cout << "New tree's parsimony score computed by mutation: " << tree->computeParsimonyScoreMutation() << '\n';
 	tree->deleteAllPartialLh();

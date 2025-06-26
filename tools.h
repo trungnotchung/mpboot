@@ -412,6 +412,11 @@ extern int NNI_MAX_NR_STEP;
  */
 struct Params {
         /**
+         * Optimize read vcf file
+         */
+        bool pp_opt_read_vcf;
+
+        /**
          *  Enable placement
          */
         bool ppon;
