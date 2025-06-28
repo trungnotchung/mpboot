@@ -131,9 +131,6 @@ void placeNewSamplesOntoExistingTree(Params &params) {
 		tree->computeExcessMutations(input);
 		tree->addNewSample(input.best_node, input.best_node_branch, excess_mutations, i, alignment->missing_seq_names[i]);
 	}
-
-	alignment->addToAlignmentNewSequences(alignment->missing_seq_names, alignment->missing_sequences);
-
 	cout << "\n========== Finished placement core ==========\n";
 	cout << "Time: " << fixed << setprecision(3) << (double)(getCPUTime() - start_time) << " seconds\n";
 	cout << "Memory: " << getMemory() << " KB\n";
