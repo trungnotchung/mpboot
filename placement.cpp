@@ -134,10 +134,7 @@ void placeNewSamplesOntoExistingTree(Params &params) {
 	cout << "\n========== Finished placement core ==========\n";
 	cout << "Time: " << fixed << setprecision(3) << (double)(getCPUTime() - start_time) << " seconds\n";
 	cout << "Memory: " << getMemory() << " KB\n";
-	
 	cout << "New tree's parsimony score computed by mutation: " << tree->computeParsimonyScoreMutation() << '\n';
-	tree->deleteAllPartialLh();
-	cout << "New tree's parsimony score computed by fitch: " << tree->computeParsimony() << '\n';
 
 	delete alignment;
 	alignment = NULL;
