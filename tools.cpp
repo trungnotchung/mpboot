@@ -891,6 +891,10 @@ void parseArg(int argc, char *argv[], Params &params) {
 				params.pp_verify_preserved_tree = true;
 				continue;
 			}
+			if (strcmp(argv[cnt], "-pp_spr") == 0) {
+				params.pp_spr = true;
+				continue;
+			}
 			if (strcmp(argv[cnt], "-ho") == 0 || strcmp(argv[cnt], "-?") == 0) {
 //				usage_iqtree(argv, false);
 				usage_mpboot(argv, false);

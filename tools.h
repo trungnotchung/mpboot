@@ -441,6 +441,11 @@ struct Params {
          */
         bool pp_verify_preserved_tree;
 
+        /**
+         * Doing SPR transformation after placement
+         */
+        bool pp_spr;
+
 	/**
 	 *  Number of starting parsimony trees
 	 */
