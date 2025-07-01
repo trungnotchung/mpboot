@@ -556,6 +556,7 @@ void parseArg(int argc, char *argv[], Params &params) {
 	params.num_missing_sequences = 0;
 	params.mutation_tree_file = NULL;
 	params.ppon = false;
+	params.pp_spr = false;
 	params.pp_verify_preserved_tree = false;
 	params.original_tree_file = NULL;
     verbose_mode = VB_MIN;

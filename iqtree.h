@@ -664,6 +664,8 @@ protected:
     int k_represent;
 
 public:
+    void sprTransformationWithoutBreakingOriginalTree();
+
     /**
      * Retrieves all leaf node names from the tree and stores them in a vector.
      * 

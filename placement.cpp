@@ -136,6 +136,11 @@ void placeNewSamplesOntoExistingTree(Params &params) {
 	cout << "Memory: " << getMemory() << " KB\n";
 	cout << "New tree's parsimony score computed by mutation: " << tree->computeParsimonyScoreMutation() << '\n';
 
+	if (params.pp_spr) {
+		tree->params = &params;
+		tree->sprTransformationWithoutBreakingOriginalTree();
+	}
+
 	delete alignment;
 	alignment = NULL;
 	delete tree;

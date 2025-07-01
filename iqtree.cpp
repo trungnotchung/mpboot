@@ -4539,6 +4539,73 @@ void IQTree::reinsertIdenticalSeqs(Alignment *orig_aln, StrVector &removed_seqs,
     clearAllPartialLH();
 }
 
+void IQTree::sprTransformationWithoutBreakingOriginalTree() {
+	deleteAllPartialLh();
+	aln->addToAlignmentNewSequences(aln->missing_seq_names, aln->missing_sequences);
+    curScore = -computeParsimony();
+    cout << "Before SPR score: " << -curScore << endl;
+
+    if (pllPartitions){
+		myPartitionsDestroy(pllPartitions);
+		pllPartitions = NULL;
+	}
+	if (pllAlignment){
+		pllAlignmentDataDestroy(pllAlignment);
+		pllAlignment = NULL;
+	}
+	if (pllInst){
+		pllDestroyInstance(pllInst);
+		pllInst = NULL;
+	}
+
+	PatternComp pcomp;
+	sort(aln->begin(), aln->end(), pcomp);
+	aln->updateSitePatternAfterOptimized();
+	initializePLL(*params); // because the set of patterns might be a subset of the orig
+    pllNewickTree *btree = pllNewickParseString(getTreeString().c_str());
+	assert(btree != NULL);
+	pllTreeInitTopologyNewick(pllInst, btree, PLL_FALSE);
+	pllNewickParseDestroy(&btree);
+
+    string old_tree_string = getTreeString();
+    size_t index = 0;
+    while (true) {
+        /* Locate the substring to replace. */
+        index = old_tree_string.find(":nan", index);
+        if (index == std::string::npos) break;
+
+        /* Make the replacement. */
+        old_tree_string.replace(index, 4, ":0");
+
+        /* Advance index forward so the next iteration doesn't pick it up as well. */
+        index += 4;
+    }
+
+    int max_spr_rad = params->spr_maxtrav;
+    if(on_opt_btree && params->opt_btree_nni) params->spr_maxtrav = 1;
+
+    pllNewickTree *spr_start_tree = pllNewickParseString(old_tree_string.c_str());
+    assert(spr_start_tree != NULL);
+    pllTreeInitTopologyNewick(pllInst, spr_start_tree, PLL_FALSE);
+
+    // ----------------- Key step: ask PLL to run SPR hill-climbing
+    pllOptimizeSprParsimony(pllInst, pllPartitions, params->spr_mintrav, max_spr_rad, this);
+
+    pllNewickParseDestroy(&spr_start_tree);
+
+    pllTreeToNewick(pllInst->tree_string, pllInst, pllPartitions, pllInst->start->back, PLL_TRUE, PLL_TRUE, 0, 0, 0, PLL_SUMMARIZE_LH, 0, 0);
+
+    string new_tree_string = string(pllInst->tree_string);
+    if(new_tree_string == old_tree_string) outError("Tree string stays the same after SPR.");
+    readTreeString(new_tree_string);
+    initializeAllPartialPars();
+    clearAllPartialLH();
+    curScore = -computeParsimony();
+    cout << "After SPR score: " << -curScore << endl;
+
+    _pllFreeParsimonyDataStructures(pllInst, pllPartitions);
+}
+
 void IQTree::getLeavesName(vector<string> &leaves_name) {
     getLeavesName(root, root->neighbors[0]->node, leaves_name);
     getLeavesName(root->neighbors[0]->node, root, leaves_name);
