@@ -92,7 +92,7 @@ public:
      */
     int readNexus(char *filename);
 
-    int buildPattern(StrVector &sequences, char *sequence_type, int nseq, int nsite);
+    int buildPattern(StrVector &sequences, char *sequence_type, int nseq, int nsite, SeqType seq_type = SEQ_UNKNOWN);
 
     /**
             read the alignment in PHYLIP format
