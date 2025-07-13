@@ -1130,7 +1130,7 @@ int getMaxObservedStates(StrVector &sequences) {
 	return 0;
 }
 
-int Alignment::buildPattern(StrVector &sequences, char *sequence_type, int nseq, int nsite, SeqType _seq_type) {
+int Alignment::buildPattern(StrVector &sequences, char *sequence_type, int nseq, int nsite) {
     int seq_id;
     ostringstream err_str;
     codon_table = NULL;
@@ -1171,8 +1171,7 @@ int Alignment::buildPattern(StrVector &sequences, char *sequence_type, int nseq,
         throw err_str.str();
 
     /* now check data type */
-    if (_seq_type == SEQ_UNKNOWN) seq_type = detectSequenceType(sequences);
-    else seq_type = _seq_type;
+    if (seq_type == SEQ_UNKNOWN) seq_type = detectSequenceType(sequences);
     
     switch (seq_type) {
     case SEQ_BINARY:
@@ -1533,7 +1532,7 @@ int Alignment::readPartialVCF(ifstream &in, char *sequence_type, vector<int> &pe
 
 	// If not enough columns, rebuild pattern and return
 	if (num_processed_column < num_column) {
-		buildPattern(sequences, sequence_type, nseq, nsite, SEQ_DNA);
+		buildPattern(sequences, sequence_type, nseq, nsite);
 		initial_column_state.assign(nsite, "");
 		for (int seq = 0; seq < nseq; ++seq) {
 			for (int site = 0; site < nsite; ++site)
