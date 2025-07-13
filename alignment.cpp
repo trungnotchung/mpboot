@@ -1130,7 +1130,7 @@ int getMaxObservedStates(StrVector &sequences) {
 	return 0;
 }
 
-int Alignment::buildPattern(StrVector &sequences, char *sequence_type, int nseq, int nsite, SeqType seq_type) {
+int Alignment::buildPattern(StrVector &sequences, char *sequence_type, int nseq, int nsite, SeqType _seq_type) {
     int seq_id;
     ostringstream err_str;
     codon_table = NULL;
@@ -1171,7 +1171,9 @@ int Alignment::buildPattern(StrVector &sequences, char *sequence_type, int nseq,
         throw err_str.str();
 
     /* now check data type */
-    if (seq_type == SEQ_UNKNOWN) seq_type = detectSequenceType(sequences);
+    if (_seq_type == SEQ_UNKNOWN) seq_type = detectSequenceType(sequences);
+    else seq_type = _seq_type;
+    
     switch (seq_type) {
     case SEQ_BINARY:
         num_states = 2;
