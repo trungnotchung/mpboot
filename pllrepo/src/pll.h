@@ -697,6 +697,7 @@ typedef  struct noderec
   char             x;
   char             xPars;
   char             xBips;
+  int              numExistingSamples; // 0: not contain original node, 1: contains original node
 }
   node, *nodeptr;
 
@@ -1258,7 +1259,7 @@ typedef  struct  {
   pllBoolean        compressPatterns;
   double         likelihoodEpsilon;
   pllBoolean        useCheckpoint;
-
+  int              numMissingSamples;
 } pllInstance;
 
 /** @brief Stores data related to a NNI move  */
