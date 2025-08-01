@@ -21,6 +21,8 @@ void _pllComputeRandomizedStepwiseAdditionParsimonyTree(pllInstance * tr, partit
 void _allocateParsimonyDataStructures(pllInstance *tr, partitionList *pr);
 void _pllFreeParsimonyDataStructures(pllInstance *tr, partitionList *pr);
 
+int pllOptimizeSprParsimonyWithoutBreakingOriginalTree(pllInstance * tr, partitionList * pr, int mintrav, int maxtrav, IQTree *iqtree);
+
 /**
  * DTH: optimize whatever tree is stored in tr by parsimony SPR
  * @param tr: the tree instance :)

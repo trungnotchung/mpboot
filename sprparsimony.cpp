@@ -440,50 +440,48 @@ static void computeTraversalInfoParsimonyWithoutBreakingOriginalTree(nodeptr p, 
   }
 #endif
 
-  nodeptr
-      q = p->next->back,
-      r = p->next->next->back;
+	nodeptr
+		q = p->next->back,
+		r = p->next->next->back;
 
-  if (!p->xPars)
-    getxnodeLocal(p);
+	if (!p->xPars) {
+		getxnodeLocal(p);
+	}
 
-  if (full)
-  {
-    if (q->number > maxTips)
-      computeTraversalInfoParsimonyWithoutBreakingOriginalTree(q, ti, counter, maxTips, full, perSiteScores, numAddRows);
-    else {
-      q->numExistingSamples = q->number <= (maxTips - numAddRows);;
-    }
+	if (full) {
+		if (q->number > maxTips) {
+			computeTraversalInfoParsimonyWithoutBreakingOriginalTree(q, ti, counter, maxTips, full, perSiteScores, numAddRows);
+		} else {
+			q->numExistingSamples = q->number <= (maxTips - numAddRows);;
+		}
 
-    if (r->number > maxTips)
-      computeTraversalInfoParsimonyWithoutBreakingOriginalTree(r, ti, counter, maxTips, full, perSiteScores, numAddRows);
-    else {
-      r->numExistingSamples = r->number <= (maxTips - numAddRows);
-    }
+		if (r->number > maxTips) {
+			computeTraversalInfoParsimonyWithoutBreakingOriginalTree(r, ti, counter, maxTips, full, perSiteScores, numAddRows);
+		} else {
+			r->numExistingSamples = r->number <= (maxTips - numAddRows);
+		}
 
-    p->numExistingSamples = q->numExistingSamples + r->numExistingSamples;
-  }
-  else
-  {
-    if (q->number > maxTips && !q->xPars)
-      computeTraversalInfoParsimonyWithoutBreakingOriginalTree(q, ti, counter, maxTips, full, perSiteScores, numAddRows);
-    else if (q->number <= maxTips) {
-      q->numExistingSamples = q->number <= (maxTips - numAddRows);;
-    }
+		p->numExistingSamples = q->numExistingSamples + r->numExistingSamples;
+	} else {
+		if (q->number > maxTips && !q->xPars) {
+			computeTraversalInfoParsimonyWithoutBreakingOriginalTree(q, ti, counter, maxTips, full, perSiteScores, numAddRows);
+		} else if (q->number <= maxTips) {
+			q->numExistingSamples = q->number <= (maxTips - numAddRows);;
+		}
 
-    if (r->number > maxTips && !r->xPars)
-      computeTraversalInfoParsimonyWithoutBreakingOriginalTree(r, ti, counter, maxTips, full, perSiteScores, numAddRows);
-    else if (r->number <= maxTips) {
-      r->numExistingSamples = r->number <= (maxTips - numAddRows);
-    }
+		if (r->number > maxTips && !r->xPars) {
+			computeTraversalInfoParsimonyWithoutBreakingOriginalTree(r, ti, counter, maxTips, full, perSiteScores, numAddRows);
+		} else if (r->number <= maxTips) {
+			r->numExistingSamples = r->number <= (maxTips - numAddRows);
+		}
 
-    p->numExistingSamples = q->numExistingSamples + r->numExistingSamples;
-  }
+		p->numExistingSamples = q->numExistingSamples + r->numExistingSamples;
+	}
 
-  ti[*counter] = p->number;
-  ti[*counter + 1] = q->number;
-  ti[*counter + 2] = r->number;
-  *counter = *counter + 4;
+	ti[*counter] = p->number;
+	ti[*counter + 1] = q->number;
+	ti[*counter + 2] = r->number;
+	*counter = *counter + 4;
 }
 
 static void computeTraversalInfoParsimony(nodeptr p, int *ti, int *counter, int maxTips, pllBoolean full, int perSiteScores)
@@ -2313,173 +2311,158 @@ static nodeptr  removeNodeParsimony (nodeptr p)
 
 unsigned int evaluateParsimonyWithoutBreakingOriginalTree(pllInstance *tr, partitionList *pr, nodeptr p, pllBoolean full, int perSiteScores)
 {
-  volatile unsigned int result;
-  nodeptr q = p->back;
-  int
-      *ti = tr->ti,
-      counter = 4;
+	volatile unsigned int result;
+	nodeptr q = p->back;
+	int
+		*ti = tr->ti,
+		counter = 4;
 
-  ti[1] = p->number;
-  ti[2] = q->number;
+	ti[1] = p->number;
+	ti[2] = q->number;
 
-  if (full)
-  {
-    if (p->number > tr->mxtips)
-      computeTraversalInfoParsimonyWithoutBreakingOriginalTree(p, ti, &counter, tr->mxtips, full, perSiteScores, tr->numMissingSamples);
-    else {
-      p->numExistingSamples = p->number <= (tr->mxtips - tr->numMissingSamples);
-    }
-    if (q->number > tr->mxtips)
-      computeTraversalInfoParsimonyWithoutBreakingOriginalTree(q, ti, &counter, tr->mxtips, full, perSiteScores, tr->numMissingSamples);
-    else {
-      q->numExistingSamples = q->number <= (tr->mxtips - tr->numMissingSamples);
-    }
-  }
-  else
-  {
-    if (p->number > tr->mxtips && !p->xPars)
-      computeTraversalInfoParsimonyWithoutBreakingOriginalTree(p, ti, &counter, tr->mxtips, full, perSiteScores, tr->numMissingSamples);
-    else if (p->number <= tr->mxtips) {
-      p->numExistingSamples = p->number <= (tr->mxtips - tr->numMissingSamples);
-    }
-    if (q->number > tr->mxtips && !q->xPars)
-      computeTraversalInfoParsimonyWithoutBreakingOriginalTree(q, ti, &counter, tr->mxtips, full, perSiteScores, tr->numMissingSamples);
-    else if (q->number <= tr->mxtips) {
-      q->numExistingSamples = q->number <= (tr->mxtips - tr->numMissingSamples);
-    }
-  }
+	if (full) {
+		if (p->number > tr->mxtips) {
+			computeTraversalInfoParsimonyWithoutBreakingOriginalTree(p, ti, &counter, tr->mxtips, full, perSiteScores, tr->numMissingSamples);
+		} else {
+			p->numExistingSamples = p->number <= (tr->mxtips - tr->numMissingSamples);
+		}
+		if (q->number > tr->mxtips) {
+			computeTraversalInfoParsimonyWithoutBreakingOriginalTree(q, ti, &counter, tr->mxtips, full, perSiteScores, tr->numMissingSamples);
+		} else {
+			q->numExistingSamples = q->number <= (tr->mxtips - tr->numMissingSamples);
+		}
+	}
+	else
+	{
+		if (p->number > tr->mxtips && !p->xPars) {
+			computeTraversalInfoParsimonyWithoutBreakingOriginalTree(p, ti, &counter, tr->mxtips, full, perSiteScores, tr->numMissingSamples);
+		} else if (p->number <= tr->mxtips) {
+			p->numExistingSamples = p->number <= (tr->mxtips - tr->numMissingSamples);
+		}
+		if (q->number > tr->mxtips && !q->xPars) {
+			computeTraversalInfoParsimonyWithoutBreakingOriginalTree(q, ti, &counter, tr->mxtips, full, perSiteScores, tr->numMissingSamples);
+		} else if (q->number <= tr->mxtips) {
+			q->numExistingSamples = q->number <= (tr->mxtips - tr->numMissingSamples);
+		}
+	}
 
-  ti[0] = counter;
+	ti[0] = counter;
 
-  result = evaluateParsimonyIterativeFast(tr, pr, perSiteScores);
+	result = evaluateParsimonyIterativeFast(tr, pr, perSiteScores);
 
-  return result;
+	return result;
 }
 
 static int rearrangeParsimonyWithoutBreakingOriginalTree(pllInstance *tr, partitionList *pr, nodeptr p, int mintrav, int maxtrav, pllBoolean doAll, int perSiteScores)
 {
-  nodeptr
-      p1,
-      p2,
-      q,
-      q1,
-      q2;
+	nodeptr
+		p1,
+		p2,
+		q,
+		q1,
+		q2;
 
-  int
-      mintrav2;
+	int
+		mintrav2;
 
-  pllBoolean
-      doP = PLL_TRUE,
-      doQ = PLL_TRUE;
+	pllBoolean
+		doP = PLL_TRUE,
+		doQ = PLL_TRUE;
 
-  if (maxtrav > tr->ntips - 3)
-    maxtrav = tr->ntips - 3;
+	if (maxtrav > tr->ntips - 3)
+		maxtrav = tr->ntips - 3;
 
-  assert(mintrav == 1);
+	assert(mintrav == 1);
 
-  if (maxtrav < mintrav)
-    return 0;
+	if (maxtrav < mintrav)
+		return 0;
 
-  q = p->back;
+	q = p->back;
 
-  unsigned int mp = evaluateParsimonyWithoutBreakingOriginalTree(tr, pr, p, PLL_FALSE, perSiteScores); // Diep: This is VERY important to make sure SPR is accurate*****
-  if (perSiteScores)
-  {
-    // If UFBoot is enabled ...
-    pllSaveCurrentTreeSprParsimony(tr, pr, mp); // run UFBoot
-  }
+	unsigned int mp = evaluateParsimonyWithoutBreakingOriginalTree(tr, pr, p, PLL_FALSE, perSiteScores); // Diep: This is VERY important to make sure SPR is accurate*****
+	if (perSiteScores) {
+		// If UFBoot is enabled ...
+		pllSaveCurrentTreeSprParsimony(tr, pr, mp); // run UFBoot
+	}
 
-  if (tr->constrained)
-  {
-    if (!tipHomogeneityCheckerPars(tr, p->back, 0))
-      doP = PLL_FALSE;
+	if (tr->constrained) {
+		if (!tipHomogeneityCheckerPars(tr, p->back, 0))
+			doP = PLL_FALSE;
 
-    if (!tipHomogeneityCheckerPars(tr, q->back, 0))
-      doQ = PLL_FALSE;
+		if (!tipHomogeneityCheckerPars(tr, q->back, 0))
+			doQ = PLL_FALSE;
 
-    if (doQ == PLL_FALSE && doP == PLL_FALSE)
-      return 0;
-  }
+		if (doQ == PLL_FALSE && doP == PLL_FALSE)
+			return 0;
+	}
 
-  if (p->numExistingSamples != 0 && p->numExistingSamples != tr->mxtips - tr->numMissingSamples) {
-    doP = PLL_FALSE;
-    // cerr << "can not do P\n";
-  }
-  if (q->numExistingSamples != 0 && q->numExistingSamples != tr->mxtips - tr->numMissingSamples) {
-    doQ = PLL_FALSE;
-    // cerr << "can not do Q\n";
-  }
+	if (p->numExistingSamples != 0 && p->numExistingSamples != tr->mxtips - tr->numMissingSamples) {
+		doP = PLL_FALSE;
+		// cerr << "can not do P\n";
+	}
+	if (q->numExistingSamples != 0 && q->numExistingSamples != tr->mxtips - tr->numMissingSamples) {
+		doQ = PLL_FALSE;
+		// cerr << "can not do Q\n";
+	}
 
-  // cout << p->number << " " << q->number << endl;
-  // cout << p->numOriginalLeaves << " " << q->numOriginalLeaves << endl;
+	// cout << p->number << " " << q->number << endl;
+	// cout << p->numOriginalLeaves << " " << q->numOriginalLeaves << endl;
 
-  if ((p->number > tr->mxtips) && doP)
-  {
-    p1 = p->next->back;
-    p2 = p->next->next->back;
+	if ((p->number > tr->mxtips) && doP) {
+		p1 = p->next->back;
+		p2 = p->next->next->back;
 
-    if ((p1->number > tr->mxtips) || (p2->number > tr->mxtips))
-    {
-      // removeNodeParsimony(p, tr);
-      removeNodeParsimony(p);
+		if ((p1->number > tr->mxtips) || (p2->number > tr->mxtips)) {
+			// removeNodeParsimony(p, tr);
+			removeNodeParsimony(p);
 
-      if ((p1->number > tr->mxtips))
-      {
-        addTraverseParsimony(tr, pr, p, p1->next->back, mintrav, maxtrav, doAll, PLL_FALSE, perSiteScores);
-        addTraverseParsimony(tr, pr, p, p1->next->next->back, mintrav, maxtrav, doAll, PLL_FALSE, perSiteScores);
-      }
+			if ((p1->number > tr->mxtips)) {
+				addTraverseParsimony(tr, pr, p, p1->next->back, mintrav, maxtrav, doAll, PLL_FALSE, perSiteScores);
+				addTraverseParsimony(tr, pr, p, p1->next->next->back, mintrav, maxtrav, doAll, PLL_FALSE, perSiteScores);
+			}
 
-      if ((p2->number > tr->mxtips))
-      {
-        addTraverseParsimony(tr, pr, p, p2->next->back, mintrav, maxtrav, doAll, PLL_FALSE, perSiteScores);
-        addTraverseParsimony(tr, pr, p, p2->next->next->back, mintrav, maxtrav, doAll, PLL_FALSE, perSiteScores);
-      }
+			if ((p2->number > tr->mxtips)) {
+				addTraverseParsimony(tr, pr, p, p2->next->back, mintrav, maxtrav, doAll, PLL_FALSE, perSiteScores);
+				addTraverseParsimony(tr, pr, p, p2->next->next->back, mintrav, maxtrav, doAll, PLL_FALSE, perSiteScores);
+			}
 
-      hookupDefault(p->next, p1);
-      hookupDefault(p->next->next, p2);
+			hookupDefault(p->next, p1);
+			hookupDefault(p->next->next, p2);
 
-      newviewParsimony(tr, pr, p, perSiteScores);
-    }
-  }
+			newviewParsimony(tr, pr, p, perSiteScores);
+		}
 
-  if ((q->number > tr->mxtips) && (maxtrav > 0) && doQ)
-  {
-    q1 = q->next->back;
-    q2 = q->next->next->back;
+		if ((q->number > tr->mxtips) && (maxtrav > 0) && doQ) {
+			q1 = q->next->back;
+			q2 = q->next->next->back;
 
-    if (
-        (
-            (q1->number > tr->mxtips) &&
-            ((q1->next->back->number > tr->mxtips) || (q1->next->next->back->number > tr->mxtips))) ||
-        ((q2->number > tr->mxtips) &&
-         ((q2->next->back->number > tr->mxtips) || (q2->next->next->back->number > tr->mxtips))))
-    {
+			if (((q1->number > tr->mxtips) && ((q1->next->back->number > tr->mxtips) || (q1->next->next->back->number > tr->mxtips)))
+				|| ((q2->number > tr->mxtips) && ((q2->next->back->number > tr->mxtips) || (q2->next->next->back->number > tr->mxtips)))) {
 
-      // removeNodeParsimony(q, tr);
-      removeNodeParsimony(q);
+				// removeNodeParsimony(q, tr);
+				removeNodeParsimony(q);
 
-      mintrav2 = mintrav > 2 ? mintrav : 2;
+				mintrav2 = mintrav > 2 ? mintrav : 2;
 
-      if ((q1->number > tr->mxtips))
-      {
-        addTraverseParsimony(tr, pr, q, q1->next->back, mintrav2, maxtrav, doAll, PLL_FALSE, perSiteScores);
-        addTraverseParsimony(tr, pr, q, q1->next->next->back, mintrav2, maxtrav, doAll, PLL_FALSE, perSiteScores);
-      }
+				if ((q1->number > tr->mxtips)) {
+					addTraverseParsimony(tr, pr, q, q1->next->back, mintrav2, maxtrav, doAll, PLL_FALSE, perSiteScores);
+					addTraverseParsimony(tr, pr, q, q1->next->next->back, mintrav2, maxtrav, doAll, PLL_FALSE, perSiteScores);
+				}
 
-      if ((q2->number > tr->mxtips))
-      {
-        addTraverseParsimony(tr, pr, q, q2->next->back, mintrav2, maxtrav, doAll, PLL_FALSE, perSiteScores);
-        addTraverseParsimony(tr, pr, q, q2->next->next->back, mintrav2, maxtrav, doAll, PLL_FALSE, perSiteScores);
-      }
+				if ((q2->number > tr->mxtips)) {
+					addTraverseParsimony(tr, pr, q, q2->next->back, mintrav2, maxtrav, doAll, PLL_FALSE, perSiteScores);
+					addTraverseParsimony(tr, pr, q, q2->next->next->back, mintrav2, maxtrav, doAll, PLL_FALSE, perSiteScores);
+				}
 
-      hookupDefault(q->next, q1);
-      hookupDefault(q->next->next, q2);
+				hookupDefault(q->next, q1);
+				hookupDefault(q->next->next, q2);
 
-      newviewParsimony(tr, pr, q, perSiteScores);
-    }
-  }
+				newviewParsimony(tr, pr, q, perSiteScores);
+			}
+		}
+	}
 
-  return 1;
+	return 1;
 }
 
 static int rearrangeParsimony(pllInstance *tr, partitionList *pr, nodeptr p, int mintrav, int maxtrav, pllBoolean doAll, int perSiteScores)
@@ -3467,75 +3450,68 @@ void _pllComputeRandomizedStepwiseAdditionParsimonyTree(pllInstance * tr, partit
  * @param mintrav, maxtrav are PLL limitations for SPR radius
  * @return best parsimony score found
  */
-int PllOptimizeSprParsimonyWithoutBreakingOriginalTree(pllInstance *tr, partitionList *pr, int mintrav, int maxtrav, IQTree *_iqtree)
+int pllOptimizeSprParsimonyWithoutBreakingOriginalTree(pllInstance *tr, partitionList *pr, int mintrav, int maxtrav, IQTree *_iqtree)
 {
-  int perSiteScores = globalParam->gbo_replicates > 0;
+	int perSiteScores = globalParam->gbo_replicates > 0;
 
-  iqtree = _iqtree; // update pointer to IQTree
+	iqtree = _iqtree; // update pointer to IQTree
 
-  if (globalParam->ratchet_iter >= 0 && (iqtree->on_ratchet_hclimb1 || iqtree->on_ratchet_hclimb2))
-  {
-    _updateInternalPllOnRatchet(tr, pr);
-    _allocateParsimonyDataStructures(tr, pr, perSiteScores); // called once if not running ratchet
+	if (globalParam->ratchet_iter >= 0 && (iqtree->on_ratchet_hclimb1 || iqtree->on_ratchet_hclimb2)) {
+		_updateInternalPllOnRatchet(tr, pr);
+		_allocateParsimonyDataStructures(tr, pr, perSiteScores); // called once if not running ratchet
+	}
+	else if (first_call || (iqtree && iqtree->on_opt_btree)) {
+		_allocateParsimonyDataStructures(tr, pr, perSiteScores); // called once if not running ratchet
+	}
+	if (first_call) {
+		first_call = false;
+	}
 
-  }
-  else if (first_call || (iqtree && iqtree->on_opt_btree)) {
-    _allocateParsimonyDataStructures(tr, pr, perSiteScores); // called once if not running ratchet
-  }
-  if (first_call)
-  {
-    first_call = false;
-  }
+	int i;
+	unsigned int
+		randomMP,
+		startMP;
 
-  int i;
-  unsigned int
-      randomMP,
-      startMP;
+	assert(!tr->constrained);
 
-  assert(!tr->constrained);
+	nodeRectifierPars(tr);
 
-  nodeRectifierPars(tr);
+	tr->bestParsimony = UINT_MAX;
+	tr->bestParsimony = evaluateParsimonyWithoutBreakingOriginalTree(tr, pr, tr->start, PLL_TRUE, perSiteScores);
 
-  tr->bestParsimony = UINT_MAX;
-  tr->bestParsimony = evaluateParsimonyWithoutBreakingOriginalTree(tr, pr, tr->start, PLL_TRUE, perSiteScores);
+	assert(abs(iqtree->curScore) == tr->bestParsimony);
 
-  assert(abs(iqtree->curScore) == tr->bestParsimony);
+	int j;
 
-  int j;
+	unsigned int bestIterationScoreHits = 1;
+	randomMP = tr->bestParsimony;
+	tr->ntips = tr->mxtips;
+	do {
+		startMP = randomMP;
+		nodeRectifierPars(tr);
+		for (i = 1; i <= tr->mxtips + tr->mxtips - 2; i++) {
+			//		for(j = 1; j <= tr->mxtips + tr->mxtips - 2; j++){
+			//			i = perm[j];
+			tr->insertNode = NULL;
+			tr->removeNode = NULL;
+			bestTreeScoreHits = 1;
 
-  unsigned int bestIterationScoreHits = 1;
-  randomMP = tr->bestParsimony;
-  tr->ntips = tr->mxtips;
-  do
-  {
-    startMP = randomMP;
-    nodeRectifierPars(tr);
-    for (i = 1; i <= tr->mxtips + tr->mxtips - 2; i++)
-    {
-      //		for(j = 1; j <= tr->mxtips + tr->mxtips - 2; j++){
-      //			i = perm[j];
-      tr->insertNode = NULL;
-      tr->removeNode = NULL;
-      bestTreeScoreHits = 1;
+			rearrangeParsimonyWithoutBreakingOriginalTree(tr, pr, tr->nodep[i], mintrav, maxtrav, PLL_FALSE, perSiteScores);
 
-      rearrangeParsimonyWithoutBreakingOriginalTree(tr, pr, tr->nodep[i], mintrav, maxtrav, PLL_FALSE, perSiteScores);
+			if (tr->bestParsimony == randomMP)
+				bestIterationScoreHits++;
+			if (tr->bestParsimony < randomMP)
+				bestIterationScoreHits = 1;
+			if (((tr->bestParsimony < randomMP)
+				|| ((tr->bestParsimony == randomMP) && (random_double() <= 1.0 / bestIterationScoreHits)))
+				&& tr->removeNode && tr->insertNode) {
+				restoreTreeRearrangeParsimony(tr, pr, perSiteScores);
+				randomMP = tr->bestParsimony;
+			}
+		}
+	} while (randomMP < startMP);
 
-      if (tr->bestParsimony == randomMP)
-        bestIterationScoreHits++;
-      if (tr->bestParsimony < randomMP)
-        bestIterationScoreHits = 1;
-      if (((tr->bestParsimony < randomMP) ||
-           ((tr->bestParsimony == randomMP) &&
-            (random_double() <= 1.0 / bestIterationScoreHits))) &&
-          tr->removeNode && tr->insertNode)
-      {
-        restoreTreeRearrangeParsimony(tr, pr, perSiteScores);
-        randomMP = tr->bestParsimony;
-      }
-    }
-  } while (randomMP < startMP);
-
-  return startMP;
+	return startMP;
 }
 
 /**

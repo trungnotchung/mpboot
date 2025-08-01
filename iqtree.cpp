@@ -4589,7 +4589,7 @@ void IQTree::sprTransformationWithoutBreakingOriginalTree() {
     pllTreeInitTopologyNewick(pllInst, spr_start_tree, PLL_FALSE);
 
     // ----------------- Key step: ask PLL to run SPR hill-climbing
-    pllOptimizeSprParsimony(pllInst, pllPartitions, params->spr_mintrav, max_spr_rad, this);
+    pllOptimizeSprParsimonyWithoutBreakingOriginalTree(pllInst, pllPartitions, params->spr_mintrav, max_spr_rad, this);
 
     pllNewickParseDestroy(&spr_start_tree);
 
