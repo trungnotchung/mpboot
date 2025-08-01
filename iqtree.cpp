@@ -541,6 +541,7 @@ void IQTree::initializePLL(Params &params) {
     pllAttr.saveMemory = PLL_FALSE;
     pllAttr.useRecom = PLL_FALSE;
     pllAttr.randomNumberSeed = params.ran_seed;
+    pllAttr.numMissingSamples = params.num_missing_sequences;
 #ifdef _OPENMP
     pllAttr.numberOfThreads = params.num_threads; /* This only affects the pthreads version */
 #else
@@ -4540,10 +4541,11 @@ void IQTree::reinsertIdenticalSeqs(Alignment *orig_aln, StrVector &removed_seqs,
 }
 
 void IQTree::sprTransformationWithoutBreakingOriginalTree() {
+    cout << "\n================= Starting SPR transformation ================\n";
 	deleteAllPartialLh();
 	aln->addToAlignmentNewSequences(aln->missing_seq_names, aln->missing_sequences);
     curScore = -computeParsimony();
-    cout << "Before SPR score: " << -curScore << endl;
+    cout << "Parsimony score before SPR transformation: " << -curScore << endl;
 
     if (pllPartitions){
 		myPartitionsDestroy(pllPartitions);
@@ -4601,7 +4603,8 @@ void IQTree::sprTransformationWithoutBreakingOriginalTree() {
     initializeAllPartialPars();
     clearAllPartialLH();
     curScore = -computeParsimony();
-    cout << "After SPR score: " << -curScore << endl;
+    cout << "Parsimony score after SPR transformation: " << -curScore << endl;
+    cout << "\n================= Finished SPR transformation ================\n";
 
     _pllFreeParsimonyDataStructures(pllInst, pllPartitions);
 }

@@ -1945,6 +1945,8 @@ pllInstance * pllCreateInstance (pllInstanceAttr * attr)
   tr->numberOfThreads   = attr->numberOfThreads;
   tr->rearrangeHistory  = NULL;
 
+  tr->numMissingSamples = attr->numMissingSamples;
+
   /* Lock the slave processors at this point */
 #ifdef _FINE_GRAIN_MPI
   pllLockMPI (tr);

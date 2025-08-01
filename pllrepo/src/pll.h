@@ -298,6 +298,7 @@ typedef struct
   int useRecom;
   long randomNumberSeed;
   int numberOfThreads;
+  int numMissingSamples;
 } pllInstanceAttr;
 
 /** @brief Stores the recomputation-state of likelihood vectors  */

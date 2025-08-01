@@ -431,7 +431,7 @@ static void getxnodeLocal (nodeptr p)
 
 }
 
-static void computeTraversalInfoParsimonyWithoutBreakingOriginalTree(nodeptr p, int *ti, int *counter, int maxTips, pllBoolean full, int perSiteScores, int numAddRows)
+static void computeTraversalInfoParsimonyWithoutBreakingOriginalTree(nodeptr p, int *ti, int *counter, int maxTips, pllBoolean full, int perSiteScores, int numMissingSamples)
 {
 #if (defined(__SSE3) || defined(__AVX))
   if (perSiteScores && pllCostMatrix == NULL)
@@ -450,29 +450,29 @@ static void computeTraversalInfoParsimonyWithoutBreakingOriginalTree(nodeptr p, 
 
 	if (full) {
 		if (q->number > maxTips) {
-			computeTraversalInfoParsimonyWithoutBreakingOriginalTree(q, ti, counter, maxTips, full, perSiteScores, numAddRows);
+			computeTraversalInfoParsimonyWithoutBreakingOriginalTree(q, ti, counter, maxTips, full, perSiteScores, numMissingSamples);
 		} else {
-			q->numExistingSamples = q->number <= (maxTips - numAddRows);;
+			q->numExistingSamples = q->number <= (maxTips - numMissingSamples);
 		}
 
 		if (r->number > maxTips) {
-			computeTraversalInfoParsimonyWithoutBreakingOriginalTree(r, ti, counter, maxTips, full, perSiteScores, numAddRows);
+			computeTraversalInfoParsimonyWithoutBreakingOriginalTree(r, ti, counter, maxTips, full, perSiteScores, numMissingSamples);
 		} else {
-			r->numExistingSamples = r->number <= (maxTips - numAddRows);
+			r->numExistingSamples = r->number <= (maxTips - numMissingSamples);
 		}
 
 		p->numExistingSamples = q->numExistingSamples + r->numExistingSamples;
 	} else {
 		if (q->number > maxTips && !q->xPars) {
-			computeTraversalInfoParsimonyWithoutBreakingOriginalTree(q, ti, counter, maxTips, full, perSiteScores, numAddRows);
+			computeTraversalInfoParsimonyWithoutBreakingOriginalTree(q, ti, counter, maxTips, full, perSiteScores, numMissingSamples);
 		} else if (q->number <= maxTips) {
-			q->numExistingSamples = q->number <= (maxTips - numAddRows);;
+			q->numExistingSamples = q->number <= (maxTips - numMissingSamples);;
 		}
 
 		if (r->number > maxTips && !r->xPars) {
-			computeTraversalInfoParsimonyWithoutBreakingOriginalTree(r, ti, counter, maxTips, full, perSiteScores, numAddRows);
+			computeTraversalInfoParsimonyWithoutBreakingOriginalTree(r, ti, counter, maxTips, full, perSiteScores, numMissingSamples);
 		} else if (r->number <= maxTips) {
-			r->numExistingSamples = r->number <= (maxTips - numAddRows);
+			r->numExistingSamples = r->number <= (maxTips - numMissingSamples);
 		}
 
 		p->numExistingSamples = q->numExistingSamples + r->numExistingSamples;
@@ -1969,6 +1969,21 @@ static unsigned int evaluateParsimony(pllInstance *tr, partitionList *pr, nodept
 	return result;
 }
 
+void newviewParsimonyWithoutBreakingOriginalTree(pllInstance *tr, partitionList *pr, nodeptr  p, int perSiteScores)
+{
+  if(p->number <= tr->mxtips)
+    return;
+
+  {
+    int
+      counter = 4;
+
+    computeTraversalInfoParsimonyWithoutBreakingOriginalTree(p, tr->ti, &counter, tr->mxtips, PLL_FALSE, perSiteScores, tr->numMissingSamples);
+    tr->ti[0] = counter;
+
+    newviewParsimonyIterativeFast(tr, pr, perSiteScores);
+  }
+}
 
 static void newviewParsimony(pllInstance *tr, partitionList *pr, nodeptr  p, int perSiteScores)
 {
@@ -2398,11 +2413,9 @@ static int rearrangeParsimonyWithoutBreakingOriginalTree(pllInstance *tr, partit
 
 	if (p->numExistingSamples != 0 && p->numExistingSamples != tr->mxtips - tr->numMissingSamples) {
 		doP = PLL_FALSE;
-		// cerr << "can not do P\n";
 	}
 	if (q->numExistingSamples != 0 && q->numExistingSamples != tr->mxtips - tr->numMissingSamples) {
 		doQ = PLL_FALSE;
-		// cerr << "can not do Q\n";
 	}
 
 	// cout << p->number << " " << q->number << endl;
@@ -2429,7 +2442,7 @@ static int rearrangeParsimonyWithoutBreakingOriginalTree(pllInstance *tr, partit
 			hookupDefault(p->next, p1);
 			hookupDefault(p->next->next, p2);
 
-			newviewParsimony(tr, pr, p, perSiteScores);
+			newviewParsimonyWithoutBreakingOriginalTree(tr, pr, p, perSiteScores);
 		}
 
 		if ((q->number > tr->mxtips) && (maxtrav > 0) && doQ) {
@@ -2457,7 +2470,7 @@ static int rearrangeParsimonyWithoutBreakingOriginalTree(pllInstance *tr, partit
 				hookupDefault(q->next, q1);
 				hookupDefault(q->next->next, q2);
 
-				newviewParsimony(tr, pr, q, perSiteScores);
+				newviewParsimonyWithoutBreakingOriginalTree(tr, pr, q, perSiteScores);
 			}
 		}
 	}
@@ -3490,8 +3503,6 @@ int pllOptimizeSprParsimonyWithoutBreakingOriginalTree(pllInstance *tr, partitio
 		startMP = randomMP;
 		nodeRectifierPars(tr);
 		for (i = 1; i <= tr->mxtips + tr->mxtips - 2; i++) {
-			//		for(j = 1; j <= tr->mxtips + tr->mxtips - 2; j++){
-			//			i = perm[j];
 			tr->insertNode = NULL;
 			tr->removeNode = NULL;
 			bestTreeScoreHits = 1;
