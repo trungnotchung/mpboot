@@ -558,7 +558,6 @@ void parseArg(int argc, char *argv[], Params &params) {
 	params.ppon = false;
 	params.pp_spr = false;
 	params.pp_verify_preserved_tree = false;
-	params.original_tree_file = NULL;
     verbose_mode = VB_MIN;
     params.tree_gen = NONE;
     params.user_file = NULL;
@@ -861,12 +860,6 @@ void parseArg(int argc, char *argv[], Params &params) {
 			if (strcmp(argv[cnt], "-pp_on") == 0)
 			{
 				params.ppon = true;
-				continue;
-			}
-			if (strcmp(argv[cnt], "-pp_origin") == 0)
-			{
-				cnt++;
-				params.original_tree_file = argv[cnt];
 				continue;
 			}
 			if (strcmp(argv[cnt], "-pp_n") == 0)

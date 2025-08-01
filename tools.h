@@ -432,11 +432,6 @@ struct Params {
         char *mutation_tree_file;
 
         /**
-         * Original tree file name
-         */
-        char *original_tree_file;
-
-        /**
          * Checking correct tree
          */
         bool pp_verify_preserved_tree;

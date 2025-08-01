@@ -139,6 +139,14 @@ void placeNewSamplesOntoExistingTree(Params &params) {
 	if (params.pp_spr) {
 		tree->params = &params;
 		tree->sprTransformationWithoutBreakingOriginalTree();
+
+		if (params.pp_verify_preserved_tree) {
+			ofstream fout("new_tree.treefile");
+			tree->printTree(fout, WT_SORT_TAXA | WT_NEWLINE);
+			fout.close();
+			checkCorrectTree(params.mutation_tree_file, "new_tree.treefile");
+			std::remove("new_tree.treefile");
+		}
 	}
 
 	delete alignment;
@@ -146,8 +154,8 @@ void placeNewSamplesOntoExistingTree(Params &params) {
 	delete tree;
 }
 
-void checkCorectTree(char *origin_tree_file, char *new_tree_file) {
-	cout << "================= Start checking correct tree ================\n";
+void checkCorrectTree(char *origin_tree_file, char *new_tree_file) {
+	cout << "\n================= Start checking correct tree ================\n";
 	IQTree *origin_tree = new IQTree;
 	bool origin_tree_is_rooted = false;
 	origin_tree->readTree(origin_tree_file, origin_tree_is_rooted);
@@ -164,11 +172,12 @@ void checkCorectTree(char *origin_tree_file, char *new_tree_file) {
 	new_tree->initNodeData(origin_tree_leaves_name);
 
 	if (new_tree->compareTree(origin_tree)) {
-		cout << "Finish checking correct tree: Correct tree detected\n";
+		cout << "Correct tree detected\n";
 	}
 	else {
-		cout << "Finish checking correct tree: Wrong tree detected\n";
+		cout << "Wrong tree detected\n";
 	}
+	cout << "\n================= Finished checking correct tree ================\n";
 
 	delete origin_tree;
 	delete new_tree;
