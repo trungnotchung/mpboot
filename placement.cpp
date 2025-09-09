@@ -144,7 +144,7 @@ void placeNewSamplesOntoExistingTree(Params &params) {
 			ofstream fout("new_tree.treefile");
 			tree->printTree(fout, WT_SORT_TAXA | WT_NEWLINE);
 			fout.close();
-			checkCorrectTree(params.mutation_tree_file, "new_tree.treefile");
+			checkCorrectTree(params.mutation_tree_file, "new_tree.treefile", params.num_existing_sequences);
 			std::remove("new_tree.treefile");
 		}
 	}
@@ -154,7 +154,7 @@ void placeNewSamplesOntoExistingTree(Params &params) {
 	delete tree;
 }
 
-void checkCorrectTree(char *origin_tree_file, char *new_tree_file) {
+void checkCorrectTree(char *origin_tree_file, char *new_tree_file, int n_original) {
 	cout << "\n================= Start checking correct tree ================\n";
 	IQTree *origin_tree = new IQTree;
 	bool origin_tree_is_rooted = false;
@@ -164,14 +164,7 @@ void checkCorrectTree(char *origin_tree_file, char *new_tree_file) {
 	bool new_tree_is_rooted = false;
 	new_tree->readTree(new_tree_file, new_tree_is_rooted);
 
-	vector<string> origin_tree_leaves_name;
-	origin_tree->getLeavesName(origin_tree_leaves_name);
-
-	new_tree->assignRoot(origin_tree_leaves_name[0]);
-	sort(origin_tree_leaves_name.begin(), origin_tree_leaves_name.end());
-	new_tree->initNodeData(origin_tree_leaves_name);
-
-	if (new_tree->compareTree(origin_tree)) {
+	if (new_tree->compareTreeByHash(origin_tree, n_original)) {
 		cout << "Correct tree detected\n";
 	}
 	else {

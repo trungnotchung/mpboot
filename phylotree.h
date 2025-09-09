@@ -247,6 +247,33 @@ struct LeafFreq {
 void precomputeFitchInfo();
 
 /**
+ * 128-bit hash for tree topology comparison supporting 1B+ leaves
+ * Using dual 64-bit values for collision resistance
+ */
+struct TreeHash128 {
+    uint64_t high;
+    uint64_t low;
+    
+    TreeHash128() : high(0), low(0) {}
+    TreeHash128(uint64_t h, uint64_t l) : high(h), low(l) {}
+    
+    bool operator==(const TreeHash128& other) const {
+        return high == other.high && low == other.low;
+    }
+    
+    bool operator!=(const TreeHash128& other) const {
+        return !(*this == other);
+    }
+};
+
+/**
+ * Simple hash functions for tree topology comparison
+ */
+TreeHash128 computeLeafHash(int leaf_index);
+TreeHash128 computeInternalNodeHash(const std::vector<TreeHash128>& child_hashes);
+TreeHash128 combineHashes(const TreeHash128& a, const TreeHash128& b);
+
+/**
 Phylogenetic Tree class
 
         @author BUI Quang Minh, Steffen Klaere, Arndt von Haeseler <minh.bui@univie.ac.at>

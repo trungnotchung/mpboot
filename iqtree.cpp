@@ -4609,123 +4609,52 @@ void IQTree::sprTransformationWithoutBreakingOriginalTree() {
     _pllFreeParsimonyDataStructures(pllInst, pllPartitions);
 }
 
-void IQTree::getLeavesName(vector<string> &leaves_name) {
-    getLeavesName(root, root->neighbors[0]->node, leaves_name);
-    getLeavesName(root->neighbors[0]->node, root, leaves_name);
+
+
+bool IQTree::compareTreeByHash(IQTree *other_tree, int n_original) {
+    if (!other_tree) return false;
+    
+    // Compute hash for both trees
+    TreeHash128 hash1 = computeTreeHash((PhyloNode *)root, NULL, n_original);
+    TreeHash128 hash2 = other_tree->computeTreeHash((PhyloNode *)other_tree->root, NULL, n_original);
+    
+    return hash1 == hash2;
 }
 
-void IQTree::getLeavesName(Node *node, Node *dad, vector<string> &leaves_name) {
+TreeHash128 IQTree::computeTreeHash(PhyloNode *node, PhyloNode *dad, int n_original) {
+    if (!node) {
+        return TreeHash128(0, 0);
+    }
+    
     if (node->isLeaf()) {
-        leaves_name.push_back(node->name);
-        return;
+        if (node->id < n_original) {
+            return computeLeafHash(node->id);
+        } else {
+            return TreeHash128(0, 0);
+        }
     }
+    
+    std::vector<TreeHash128> child_hashes;
+    
     FOR_NEIGHBOR_IT(node, dad, it) {
-        getLeavesName((*it)->node, node, leaves_name);
-        if (node->name == "") {
-            node->name = (*it)->node->name;
-        }
-        else {
-            node->name = min(node->name, (*it)->node->name);
+        PhyloNode *child = (PhyloNode *)(*it)->node;
+        TreeHash128 child_hash = computeTreeHash(child, node, n_original);
+        if (child_hash.high != 0 || child_hash.low != 0) {
+            child_hashes.push_back(child_hash);
         }
     }
-}
-
-void IQTree::assignRoot(string &root_name)
-{
-    if (root->name == root_name)
-        return;
-    assignRoot(root->neighbors[0]->node, root, root_name);
-}
-
-bool IQTree::assignRoot(Node *node, Node *dad, string &root_name)
-{
-    if (node->isLeaf() && node->name == root_name) {
-        root = node;
-        return true;
+    
+    // If no valid children, this subtree doesn't contribute to the hash
+    if (child_hashes.empty()) {
+        return TreeHash128(0, 0);
     }
-    FOR_NEIGHBOR_IT(node, dad, it) {
-        if (assignRoot((*it)->node, node, root_name)) {
-            return true;
-        }
-    }
-}
-
-int IQTree::initNodeData(vector<string> &leaves_name) {
-    PhyloNode *node1 = (PhyloNode *)root;
-    PhyloNode *node2 = (PhyloNode *)root->neighbors[0]->node;
-
-    int left_child_num_missing_sample = initInfoNode(node1, node2, leaves_name);
-    int right_child_num_missing_sample = initInfoNode(node2, node1, leaves_name);
-    return left_child_num_missing_sample + right_child_num_missing_sample;
-}
-
-int IQTree::initInfoNode(PhyloNode *node, PhyloNode *dad, vector<string> &leaves_name) {
-    if (node->isLeaf()) {
-        int node_index = lower_bound(leaves_name.begin(), leaves_name.end(), node->name) - leaves_name.begin();
-        if (node_index < leaves_name.size() && leaves_name[node_index] == node->name) {
-            node->setMissingNode(-1);
-            return 1;
-        }
-        else {
-            node->setMissingNode(1);
-            return 0;
-        }
-    }
-
-    int total_missing_sample = 0;
-    bool check = true;
-    FOR_NEIGHBOR_IT(node, dad, it) {
-        int num_missing_sample = initInfoNode((PhyloNode *)(*it)->node, node, leaves_name);
-        if (num_missing_sample == 0) {
-            check = false;
-        }
-        else {
-            if (node->name == "") {
-                node->name = (*it)->node->name;
-            }
-            else {
-                node->name = min(node->name, (*it)->node->name);
-            }
-        }
-        total_missing_sample += num_missing_sample;
-    }
-
-    if (check) {
-        node->setMissingNode(-1);
-    }
-    else {
-        node->setMissingNode(1);
-    }
-    return total_missing_sample;
-}
-
-bool IQTree::compareTree(IQTree *anotherTree) {
-    if (root->name != anotherTree->root->name)
-        return false;
-    return compareTree((PhyloNode *)root, NULL, anotherTree->root, NULL);
-}
-
-bool IQTree::compareTree(PhyloNode *node1, PhyloNode *dad1, Node *node2, Node *dad2) {
-    bool check = true;
-    FOR_NEIGHBOR_IT(node1, dad1, it1) {
-        PhyloNode *child1 = (PhyloNode *)(*it1)->node;
-        if (!child1->checkMissingNode()) {
-            bool found = false;
-            FOR_NEIGHBOR_IT(node2, dad2, it2) {
-                Node *child2 = (*it2)->node;
-                if (child1->name == child2->name) {
-                    found = true;
-                    check &= compareTree(child1, node1, child2, node2);
-                    break;
-                }
-            }
-            if (!found) {
-                return false;
-            }
-        }
-        else {
-            check &= compareTree(child1, node1, node2, dad2);
-        }
-    }
-    return check;
+    
+    // Sort child hashes to ensure order independence
+    std::sort(child_hashes.begin(), child_hashes.end(), 
+              [](const TreeHash128& a, const TreeHash128& b) {
+                  if (a.high != b.high) return a.high < b.high;
+                  return a.low < b.low;
+              });
+    
+    return computeInternalNodeHash(child_hashes);
 }

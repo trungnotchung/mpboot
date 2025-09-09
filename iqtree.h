@@ -666,80 +666,26 @@ protected:
 public:
     void sprTransformationWithoutBreakingOriginalTree();
 
-    /**
-     * Retrieves all leaf node names from the tree and stores them in a vector.
-     * 
-     * @param leaves_name [out] Vector to store the leaf names. Will be populated with 
-     *                         all leaf node names from the tree.
-     */
-    void getLeavesName(vector<string> &leaves_name);
+
 
     /**
-     * Retrieves all leaf node names from a subtree rooted at the specified node.
+     * Compare two trees using fast hash-based approach
      * 
-     * @param node [in] The root node of the subtree to traverse
-     * @param dad [in] The parent node of 'node', used to direct the traversal
-     * @param leaves_name [out] Vector to store the leaf names. Will be populated with 
-     *                         all leaf node names from the subtree.
+     * @param other_tree [in] The other tree to compare against
+     * @param n_original [in] Number of original samples to consider
+     * @return true if trees have identical topology for original samples
      */
-    void getLeavesName(Node *node, Node *dad, vector<string>& leaves_name);
+    bool compareTreeByHash(IQTree *other_tree, int n_original);
 
     /**
-     * Assigns the root of the tree to the node with the specified name.
+     * Compute hash for the tree rooted at given node
      * 
-     * @param root_name [in] The name of the node that should become the root
-     * @throws std::runtime_error if no node with the given name is found
+     * @param node [in] Root node for hash computation
+     * @param dad [in] Parent node to avoid revisiting
+     * @param n_original [in] Number of original samples to consider
+     * @return 128-bit hash representing the tree topology
      */
-    void assignRoot(string &root_name);
-
-    /**
-     * Attempts to assign the root of a subtree to the node with the specified name.
-     * 
-     * @param node [in] The current node being considered
-     * @param dad [in] The parent node of 'node', used to direct the traversal
-     * @param root_name [in] The name of the node that should become the root
-     * @return true if the root was successfully assigned, false otherwise
-     */
-    bool assignRoot(Node *node, Node *dad, string &root_name);
-
-    /**
-     * Initializes node data by marking which nodes are original vs added nodes.
-     * This is done by comparing against a list of known leaf names.
-     * 
-     * @param leaves_name [in] Vector containing the names of original leaf nodes
-     * @return The number of nodes that were successfully initialized
-     */
-    int initNodeData(vector<string> &leaves_name);
-
-    /**
-     * Recursively initializes node data for a subtree by marking which nodes are 
-     * original vs added nodes. This is done by comparing against a list of known leaf names.
-     * 
-     * @param node [in] The current node being considered
-     * @param dad [in] The parent node of 'node', used to direct the traversal
-     * @param leaves_name [in] Vector containing the names of original leaf nodes
-     * @return The number of nodes that were successfully initialized in this subtree
-     */
-    int initInfoNode(PhyloNode *node, PhyloNode *dad, vector<string> &leaves_name);
-
-    /**
-     * Compares the current tree with another tree to check if they have the same topology.
-     * 
-     * @param another_tree [in] Pointer to the tree to compare against
-     * @return true if the trees have identical topology, false otherwise
-     */
-    bool compareTree(IQTree *another_tree);
-
-    /**
-     * Recursively compares two subtrees to check if they have the same topology.
-     * 
-     * @param node1 [in] Root node of the first subtree
-     * @param dad1 [in] Parent node of node1, used to direct the traversal
-     * @param node2 [in] Root node of the second subtree
-     * @param dad2 [in] Parent node of node2, used to direct the traversal
-     * @return true if the subtrees have identical topology, false otherwise
-     */
-    bool compareTree(PhyloNode *node1, PhyloNode *dad1, Node *node2, Node *dad2);
+    TreeHash128 computeTreeHash(PhyloNode *node, PhyloNode *dad, int n_original);
 
     /**
      *  @brief: optimize model parameters on the current tree
