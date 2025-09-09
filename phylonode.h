@@ -14,6 +14,7 @@
 
 #include "node.h"
 #include "mutation.h"
+#include "treehash.h"
 
 typedef short int UBYTE;
 
@@ -188,6 +189,12 @@ public:
     PhyloNode *dad;
 
     int missingIndex;
+    
+    /**
+     * Hash value for this node's subtree topology
+     * Used for fast tree comparison in SPR operations
+     */
+    TreeHash128 subtree_hash;
 };
 
 /**

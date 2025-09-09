@@ -693,6 +693,8 @@ typedef  struct noderec
   struct noderec  *next;        
   struct noderec  *back;       
   hashNumberType   hash;
+  uint64_t         subtree_hash_high;  // 128-bit subtree hash for fast tree comparison
+  uint64_t         subtree_hash_low;   // lower 64 bits of the 128-bit hash
   int              support;
   int              number;    
   char             x;

@@ -686,6 +686,42 @@ public:
      * @return 128-bit hash representing the tree topology
      */
     TreeHash128 computeTreeHash(PhyloNode *node, PhyloNode *dad, int n_original);
+    
+    /**
+     * Compute and store hashes in all PhyloNode objects
+     * 
+     * @param n_original [in] Number of original samples to consider
+     */
+    void computeAndStoreAllHashes(int n_original);
+    
+    /**
+     * Transfer hashes from PhyloNode objects to PLL node structures
+     * This should be called after pllTreeInitTopologyNewick
+     */
+    void transferHashesToPLL();
+
+private:
+    /**
+     * Helper method to compute and store hash for a single node and its subtree
+     */
+    void computeAndStoreNodeHash(PhyloNode *node, PhyloNode *dad, int n_original);
+    
+    /**
+     * Helper method to transfer hash from a single IQTree node to corresponding PLL node
+     */
+    void transferNodeHashToPLL(PhyloNode *iqnode, PhyloNode *dad);
+    
+    /**
+     * Helper method to find the corresponding PLL node for an IQTree node
+     */
+    nodeptr findPLLNode(PhyloNode *iqnode);
+    
+    /**
+     * Helper method to check if a node has existing samples (ID < n_original)
+     */
+    bool hasExistingSamples(PhyloNode *node, int n_original);
+
+public:
 
     /**
      *  @brief: optimize model parameters on the current tree

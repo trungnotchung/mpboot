@@ -5970,32 +5970,4 @@ void PhyloTree::verifyMutationCorrectness() {
 	cout << "========== End checking mutations ==========\n";
 }
 
-/**
- * Tree hashing utility functions
- */
-TreeHash128 computeLeafHash(int leaf_index) {
-    // Simple hash for leaf: just use index with some mixing
-    uint64_t hash = (uint64_t)leaf_index;
-    hash = hash * 1000000007ULL + 123456789ULL;
-    return TreeHash128(hash, hash * 31ULL);
-}
-
-TreeHash128 combineHashes(const TreeHash128& a, const TreeHash128& b) {
-    // Simple commutative combination: addition + XOR
-    return TreeHash128(a.high + b.high, a.low ^ b.low);
-}
-
-TreeHash128 computeInternalNodeHash(const std::vector<TreeHash128>& child_hashes) {
-    if (child_hashes.empty()) {
-        return TreeHash128(0, 0);
-    }
-    
-    // Simple combination of all child hashes
-    TreeHash128 result = child_hashes[0];
-    for (size_t i = 1; i < child_hashes.size(); ++i) {
-        result = combineHashes(result, child_hashes[i]);
-    }
-    
-    return result;
-}
 

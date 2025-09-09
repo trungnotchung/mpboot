@@ -22,6 +22,7 @@
 #include "phylosupertreeplen.h"
 #include "mexttree.h"
 #include "timeutil.h"
+#include "treehash.h"
 #include "model/modelgtr.h"
 #include "model/rategamma.h"
 #include <numeric>
@@ -4569,6 +4570,12 @@ void IQTree::sprTransformationWithoutBreakingOriginalTree() {
 	pllTreeInitTopologyNewick(pllInst, btree, PLL_FALSE);
 	pllNewickParseDestroy(&btree);
 
+    // Compute and store hashes for all nodes before SPR operations
+    computeAndStoreAllHashes(params->num_existing_sequences);
+    
+    // Transfer hashes to PLL structures
+    transferHashesToPLL();
+
     string old_tree_string = getTreeString();
     size_t index = 0;
     while (true) {
@@ -4589,6 +4596,9 @@ void IQTree::sprTransformationWithoutBreakingOriginalTree() {
     pllNewickTree *spr_start_tree = pllNewickParseString(old_tree_string.c_str());
     assert(spr_start_tree != NULL);
     pllTreeInitTopologyNewick(pllInst, spr_start_tree, PLL_FALSE);
+
+    // Transfer hashes to PLL structures after reinitializing topology
+    transferHashesToPLL();
 
     // ----------------- Key step: ask PLL to run SPR hill-climbing
     pllOptimizeSprParsimonyWithoutBreakingOriginalTree(pllInst, pllPartitions, params->spr_mintrav, max_spr_rad, this);
@@ -4657,4 +4667,110 @@ TreeHash128 IQTree::computeTreeHash(PhyloNode *node, PhyloNode *dad, int n_origi
               });
     
     return computeInternalNodeHash(child_hashes);
+}
+
+void IQTree::computeAndStoreAllHashes(int n_original) {
+    if (!root) return;
+    
+    // Recursively compute and store hashes for all nodes
+    computeAndStoreNodeHash((PhyloNode *)root, NULL, n_original);
+}
+
+bool IQTree::hasExistingSamples(PhyloNode *node, int n_original) {
+    if (!node) return false;
+    
+    if (node->isLeaf()) {
+        return node->id < n_original;
+    }
+    
+    // For internal nodes, check if any descendant has existing samples
+    FOR_NEIGHBOR_IT(node, NULL, it) {
+        if (hasExistingSamples((PhyloNode *)(*it)->node, n_original)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void IQTree::computeAndStoreNodeHash(PhyloNode *node, PhyloNode *dad, int n_original) {
+    if (!node) return;
+    
+    if (node->isLeaf()) {
+        // For leaf nodes, store hash based on leaf index
+        if (node->id < n_original) {
+            node->subtree_hash = computeLeafHash(node->id);
+        } else {
+            // New samples get hash of 0 (they don't participate in comparison)
+            node->subtree_hash = TreeHash128(0, 0);
+        }
+    } else {
+        // For internal nodes, compute hash from children
+        std::vector<TreeHash128> child_hashes;
+        
+        FOR_NEIGHBOR_IT(node, dad, it) {
+            PhyloNode *child = (PhyloNode *)(*it)->node;
+            computeAndStoreNodeHash(child, node, n_original);
+            
+            // Only include hashes from nodes with existing samples
+            if (hasExistingSamples(child, n_original)) {
+                child_hashes.push_back(child->subtree_hash);
+            }
+        }
+        
+        // Sort child hashes to ensure order independence
+        std::sort(child_hashes.begin(), child_hashes.end(), 
+                  [](const TreeHash128& a, const TreeHash128& b) {
+                      if (a.high != b.high) return a.high < b.high;
+                      return a.low < b.low;
+                  });
+        
+        node->subtree_hash = computeInternalNodeHash(child_hashes);
+    }
+}
+
+void IQTree::transferHashesToPLL() {
+    if (!pllInst || !root) return;
+    
+    // Transfer hashes from IQTree nodes to PLL nodes
+    transferNodeHashToPLL((PhyloNode *)root, NULL);
+}
+
+void IQTree::transferNodeHashToPLL(PhyloNode *iqnode, PhyloNode *dad) {
+    if (!iqnode) return;
+    
+    // Find corresponding PLL node
+    nodeptr pll_node = findPLLNode(iqnode);
+    if (pll_node) {
+        // Transfer the 128-bit hash
+        pll_node->subtree_hash_high = iqnode->subtree_hash.high;
+        pll_node->subtree_hash_low = iqnode->subtree_hash.low;
+    }
+    
+    // Recursively transfer for all children
+    FOR_NEIGHBOR_IT(iqnode, dad, it) {
+        transferNodeHashToPLL((PhyloNode *)(*it)->node, iqnode);
+    }
+}
+
+nodeptr IQTree::findPLLNode(PhyloNode *iqnode) {
+    if (!pllInst || !iqnode) return NULL;
+    
+    // Simple approach: match by node ID or name
+    // This assumes PLL nodes maintain correspondence with IQTree nodes
+    if (iqnode->isLeaf() && iqnode->name.length() > 0) {
+        // For leaf nodes, find by matching sequence names in alignment
+        // PLL nodes don't have names directly, so we match by ID
+        if (iqnode->id >= 1 && iqnode->id <= pllInst->mxtips) {
+            return pllInst->nodep[iqnode->id];
+        }
+    } else {
+        // For internal nodes, find by ID
+        for (int i = pllInst->mxtips + 1; i <= 2 * pllInst->mxtips - 2; i++) {
+            if (pllInst->nodep[i] && pllInst->nodep[i]->number == iqnode->id) {
+                return pllInst->nodep[i];
+            }
+        }
+    }
+    
+    return NULL;
 }

@@ -402,6 +402,7 @@ sprparsimony.cpp
 test.cpp
 mutation.cpp
 placement.cpp
+treehash.cpp
 )
 
 ##################################################################
