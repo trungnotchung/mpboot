@@ -6,6 +6,7 @@
  */
 #include "sprparsimony.h"
 #include "parstree.h"
+#include "pllrepo/src/treehash_utils.h"
 #include <string>
 /**
  * PLL (version 1.0.0) a software library for phylogenetic inference
@@ -431,6 +432,44 @@ static void getxnodeLocal (nodeptr p)
 
 }
 
+static void computeTreeHashForPllNode(nodeptr p, int numOriginalSamples)
+{
+    if (p->number <= numOriginalSamples) {
+        // Leaf node with existing sample - compute leaf hash
+        p->subtree_hash = pllTreeHashComputeLeaf(p->number - 1); // Convert to 0-based index
+    } else if (p->number > numOriginalSamples) {
+        // Internal node or new sample - compute from children if they have existing samples
+        pllTreeHash128 child_hashes[3];
+        int valid_child_count = 0;
+
+        // Check all three directions for internal nodes
+        if (p->next) {
+            nodeptr q = p->next->back;
+            nodeptr r = p->next->next->back;
+
+            // Only include children that have existing samples
+            if (q && q->numExistingSamples) {
+                child_hashes[valid_child_count++] = q->subtree_hash;
+            }
+            if (r && r->numExistingSamples) {
+                child_hashes[valid_child_count++] = r->subtree_hash;
+            }
+        }
+
+        if (valid_child_count > 0) {
+            // Sort child hashes for order independence
+            pllTreeHashSort(child_hashes, valid_child_count);
+            p->subtree_hash = pllTreeHashComputeInternal(child_hashes, valid_child_count);
+        } else {
+            // No children with existing samples
+            p->subtree_hash = pllTreeHashInitZero();
+        }
+    } else {
+        // New sample (number > numOriginalSamples) gets zero hash
+        p->subtree_hash = pllTreeHashInitZero();
+    }
+}
+
 static void computeTraversalInfoParsimonyWithoutBreakingOriginalTree(nodeptr p, int *ti, int *counter, int maxTips, pllBoolean full, int perSiteScores, int numMissingSamples)
 {
 #if (defined(__SSE3) || defined(__AVX))
@@ -448,32 +487,48 @@ static void computeTraversalInfoParsimonyWithoutBreakingOriginalTree(nodeptr p, 
 		getxnodeLocal(p);
 	}
 
+	int numOriginalSamples = maxTips - numMissingSamples;
+
 	if (full) {
 		if (q->number > maxTips) {
 			computeTraversalInfoParsimonyWithoutBreakingOriginalTree(q, ti, counter, maxTips, full, perSiteScores, numMissingSamples);
 		} else {
-			q->numExistingSamples = q->number <= (maxTips - numMissingSamples);
+			q->numExistingSamples = q->number <= numOriginalSamples;
+			// Compute hash for leaf node
+			computeTreeHashForPllNode(q, numOriginalSamples);
 		}
 
 		if (r->number > maxTips) {
 			computeTraversalInfoParsimonyWithoutBreakingOriginalTree(r, ti, counter, maxTips, full, perSiteScores, numMissingSamples);
 		} else {
-			r->numExistingSamples = r->number <= (maxTips - numMissingSamples);
+			r->numExistingSamples = r->number <= numOriginalSamples;
+			// Compute hash for leaf node
+			computeTreeHashForPllNode(r, numOriginalSamples);
 		}
+
+		// After processing children, compute hash for internal node
+		computeTreeHashForPllNode(p, numOriginalSamples);
 
 		p->numExistingSamples = q->numExistingSamples + r->numExistingSamples;
 	} else {
 		if (q->number > maxTips && !q->xPars) {
 			computeTraversalInfoParsimonyWithoutBreakingOriginalTree(q, ti, counter, maxTips, full, perSiteScores, numMissingSamples);
 		} else if (q->number <= maxTips) {
-			q->numExistingSamples = q->number <= (maxTips - numMissingSamples);;
+			q->numExistingSamples = q->number <= numOriginalSamples;
+			// Compute hash for leaf node
+			computeTreeHashForPllNode(q, numOriginalSamples);
 		}
 
 		if (r->number > maxTips && !r->xPars) {
 			computeTraversalInfoParsimonyWithoutBreakingOriginalTree(r, ti, counter, maxTips, full, perSiteScores, numMissingSamples);
 		} else if (r->number <= maxTips) {
-			r->numExistingSamples = r->number <= (maxTips - numMissingSamples);
+			r->numExistingSamples = r->number <= numOriginalSamples;
+			// Compute hash for leaf node
+			computeTreeHashForPllNode(r, numOriginalSamples);
 		}
+
+		// After processing children, compute hash for internal node
+		computeTreeHashForPllNode(p, numOriginalSamples);
 
 		p->numExistingSamples = q->numExistingSamples + r->numExistingSamples;
 	}
@@ -2335,16 +2390,20 @@ unsigned int evaluateParsimonyWithoutBreakingOriginalTree(pllInstance *tr, parti
 	ti[1] = p->number;
 	ti[2] = q->number;
 
+	int numOriginalSamples = tr->mxtips - tr->numMissingSamples;
+
 	if (full) {
 		if (p->number > tr->mxtips) {
 			computeTraversalInfoParsimonyWithoutBreakingOriginalTree(p, ti, &counter, tr->mxtips, full, perSiteScores, tr->numMissingSamples);
 		} else {
-			p->numExistingSamples = p->number <= (tr->mxtips - tr->numMissingSamples);
+			p->numExistingSamples = p->number <= numOriginalSamples;
+			computeTreeHashForPllNode(p, numOriginalSamples);
 		}
 		if (q->number > tr->mxtips) {
 			computeTraversalInfoParsimonyWithoutBreakingOriginalTree(q, ti, &counter, tr->mxtips, full, perSiteScores, tr->numMissingSamples);
 		} else {
-			q->numExistingSamples = q->number <= (tr->mxtips - tr->numMissingSamples);
+			q->numExistingSamples = q->number <= numOriginalSamples;
+			computeTreeHashForPllNode(q, numOriginalSamples);
 		}
 	}
 	else
@@ -2352,12 +2411,14 @@ unsigned int evaluateParsimonyWithoutBreakingOriginalTree(pllInstance *tr, parti
 		if (p->number > tr->mxtips && !p->xPars) {
 			computeTraversalInfoParsimonyWithoutBreakingOriginalTree(p, ti, &counter, tr->mxtips, full, perSiteScores, tr->numMissingSamples);
 		} else if (p->number <= tr->mxtips) {
-			p->numExistingSamples = p->number <= (tr->mxtips - tr->numMissingSamples);
+			p->numExistingSamples = p->number <= numOriginalSamples;
+			computeTreeHashForPllNode(p, numOriginalSamples);
 		}
 		if (q->number > tr->mxtips && !q->xPars) {
 			computeTraversalInfoParsimonyWithoutBreakingOriginalTree(q, ti, &counter, tr->mxtips, full, perSiteScores, tr->numMissingSamples);
 		} else if (q->number <= tr->mxtips) {
-			q->numExistingSamples = q->number <= (tr->mxtips - tr->numMissingSamples);
+			q->numExistingSamples = q->number <= numOriginalSamples;
+			computeTreeHashForPllNode(q, numOriginalSamples);
 		}
 	}
 

@@ -4570,11 +4570,7 @@ void IQTree::sprTransformationWithoutBreakingOriginalTree() {
 	pllTreeInitTopologyNewick(pllInst, btree, PLL_FALSE);
 	pllNewickParseDestroy(&btree);
 
-    // Compute and store hashes for all nodes before SPR operations
-    computeAndStoreAllHashes(params->num_existing_sequences);
-    
-    // Transfer hashes to PLL structures
-    transferHashesToPLL();
+    // Hash computation will be done directly in PLL during DFS traversal
 
     string old_tree_string = getTreeString();
     size_t index = 0;
@@ -4597,8 +4593,7 @@ void IQTree::sprTransformationWithoutBreakingOriginalTree() {
     assert(spr_start_tree != NULL);
     pllTreeInitTopologyNewick(pllInst, spr_start_tree, PLL_FALSE);
 
-    // Transfer hashes to PLL structures after reinitializing topology
-    transferHashesToPLL();
+    // Hash computation will be done directly in PLL during SPR operations
 
     // ----------------- Key step: ask PLL to run SPR hill-climbing
     pllOptimizeSprParsimonyWithoutBreakingOriginalTree(pllInst, pllPartitions, params->spr_mintrav, max_spr_rad, this);
