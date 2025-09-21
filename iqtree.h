@@ -685,7 +685,7 @@ public:
      * @param n_original [in] Number of original samples to consider
      * @return 128-bit hash representing the tree topology
      */
-    TreeHash128 computeTreeHash(PhyloNode *node, PhyloNode *dad, int n_original);
+    pllTreeHash128 computeTreeHash(PhyloNode *node, PhyloNode *dad, int n_original);
     
     /**
      * Compute and store hashes in all PhyloNode objects

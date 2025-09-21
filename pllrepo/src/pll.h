@@ -97,6 +97,7 @@ extern "C" {
 
 #include "stack.h"
 #include "newick.h"
+#include "treehash_utils.h"
 #include "queue.h"
 
 #define PLL_MAX_TIP_EV                          0.999999999 /* max tip vector value, sum of EVs needs to be smaller than 1.0, otherwise the numerics break down */
@@ -693,8 +694,7 @@ typedef  struct noderec
   struct noderec  *next;        
   struct noderec  *back;       
   hashNumberType   hash;
-  uint64_t         subtree_hash_high;  // 128-bit subtree hash for fast tree comparison
-  uint64_t         subtree_hash_low;   // lower 64 bits of the 128-bit hash
+  pllTreeHash128   subtree_hash;        // 128-bit subtree hash for fast tree comparison
   int              support;
   int              number;    
   char             x;

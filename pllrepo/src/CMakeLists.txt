@@ -32,6 +32,7 @@ if ((IQTREE_FLAGS MATCHES "avx" OR IQTREE_FLAGS MATCHES "fma") AND IQTREE_FLAGS 
   topologies.c
   trash.c
   treeIO.c
+  treehash_utils.c
   utils.c)
 elseif (IQTREE_FLAGS MATCHES "omp")
   add_library(pll 
@@ -60,6 +61,7 @@ elseif (IQTREE_FLAGS MATCHES "omp")
   topologies.c
   trash.c
   treeIO.c
+  treehash_utils.c
   utils.c)
 elseif (IQTREE_FLAGS MATCHES "avx" OR IQTREE_FLAGS MATCHES "fma")
   add_library(pll 
@@ -88,6 +90,7 @@ elseif (IQTREE_FLAGS MATCHES "avx" OR IQTREE_FLAGS MATCHES "fma")
     topologies.c
     trash.c
     treeIO.c
+    treehash_utils.c
     utils.c)
 else ()
   add_library(pll 
@@ -115,5 +118,6 @@ else ()
     topologies.c
     trash.c
     treeIO.c
-    utils.c)       
+    treehash_utils.c
+    utils.c)
 endif()

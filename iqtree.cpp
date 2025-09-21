@@ -22,7 +22,7 @@
 #include "phylosupertreeplen.h"
 #include "mexttree.h"
 #include "timeutil.h"
-#include "treehash.h"
+#include "pllrepo/src/treehash_utils.h"
 #include "model/modelgtr.h"
 #include "model/rategamma.h"
 #include <numeric>
@@ -4625,30 +4625,30 @@ bool IQTree::compareTreeByHash(IQTree *other_tree, int n_original) {
     if (!other_tree) return false;
     
     // Compute hash for both trees
-    TreeHash128 hash1 = computeTreeHash((PhyloNode *)root, NULL, n_original);
-    TreeHash128 hash2 = other_tree->computeTreeHash((PhyloNode *)other_tree->root, NULL, n_original);
+    pllTreeHash128 hash1 = computeTreeHash((PhyloNode *)root, NULL, n_original);
+    pllTreeHash128 hash2 = other_tree->computeTreeHash((PhyloNode *)other_tree->root, NULL, n_original);
     
-    return hash1 == hash2;
+    return pllTreeHashEqual(&hash1, &hash2);
 }
 
-TreeHash128 IQTree::computeTreeHash(PhyloNode *node, PhyloNode *dad, int n_original) {
+pllTreeHash128 IQTree::computeTreeHash(PhyloNode *node, PhyloNode *dad, int n_original) {
     if (!node) {
-        return TreeHash128(0, 0);
+        return pllTreeHashInitZero();
     }
     
     if (node->isLeaf()) {
         if (node->id < n_original) {
-            return computeLeafHash(node->id);
+            return pllTreeHashComputeLeaf(node->id);
         } else {
-            return TreeHash128(0, 0);
+            return pllTreeHashInitZero();
         }
     }
     
-    std::vector<TreeHash128> child_hashes;
+    std::vector<pllTreeHash128> child_hashes;
     
     FOR_NEIGHBOR_IT(node, dad, it) {
         PhyloNode *child = (PhyloNode *)(*it)->node;
-        TreeHash128 child_hash = computeTreeHash(child, node, n_original);
+        pllTreeHash128 child_hash = computeTreeHash(child, node, n_original);
         if (child_hash.high != 0 || child_hash.low != 0) {
             child_hashes.push_back(child_hash);
         }
@@ -4656,17 +4656,16 @@ TreeHash128 IQTree::computeTreeHash(PhyloNode *node, PhyloNode *dad, int n_origi
     
     // If no valid children, this subtree doesn't contribute to the hash
     if (child_hashes.empty()) {
-        return TreeHash128(0, 0);
+        return pllTreeHashInitZero();
     }
     
     // Sort child hashes to ensure order independence
     std::sort(child_hashes.begin(), child_hashes.end(), 
-              [](const TreeHash128& a, const TreeHash128& b) {
-                  if (a.high != b.high) return a.high < b.high;
-                  return a.low < b.low;
+              [](const pllTreeHash128& a, const pllTreeHash128& b) {
+                  return pllTreeHashLess(&a, &b);
               });
     
-    return computeInternalNodeHash(child_hashes);
+    return pllTreeHashComputeInternal(child_hashes.data(), child_hashes.size());
 }
 
 void IQTree::computeAndStoreAllHashes(int n_original) {
@@ -4698,14 +4697,14 @@ void IQTree::computeAndStoreNodeHash(PhyloNode *node, PhyloNode *dad, int n_orig
     if (node->isLeaf()) {
         // For leaf nodes, store hash based on leaf index
         if (node->id < n_original) {
-            node->subtree_hash = computeLeafHash(node->id);
+            node->subtree_hash = pllTreeHashComputeLeaf(node->id);
         } else {
             // New samples get hash of 0 (they don't participate in comparison)
-            node->subtree_hash = TreeHash128(0, 0);
+            node->subtree_hash = pllTreeHashInitZero();
         }
     } else {
         // For internal nodes, compute hash from children
-        std::vector<TreeHash128> child_hashes;
+        std::vector<pllTreeHash128> child_hashes;
         
         FOR_NEIGHBOR_IT(node, dad, it) {
             PhyloNode *child = (PhyloNode *)(*it)->node;
@@ -4719,12 +4718,11 @@ void IQTree::computeAndStoreNodeHash(PhyloNode *node, PhyloNode *dad, int n_orig
         
         // Sort child hashes to ensure order independence
         std::sort(child_hashes.begin(), child_hashes.end(), 
-                  [](const TreeHash128& a, const TreeHash128& b) {
-                      if (a.high != b.high) return a.high < b.high;
-                      return a.low < b.low;
+                  [](const pllTreeHash128& a, const pllTreeHash128& b) {
+                      return pllTreeHashLess(&a, &b);
                   });
         
-        node->subtree_hash = computeInternalNodeHash(child_hashes);
+        node->subtree_hash = pllTreeHashComputeInternal(child_hashes.data(), child_hashes.size());
     }
 }
 
@@ -4742,8 +4740,7 @@ void IQTree::transferNodeHashToPLL(PhyloNode *iqnode, PhyloNode *dad) {
     nodeptr pll_node = findPLLNode(iqnode);
     if (pll_node) {
         // Transfer the 128-bit hash
-        pll_node->subtree_hash_high = iqnode->subtree_hash.high;
-        pll_node->subtree_hash_low = iqnode->subtree_hash.low;
+        pll_node->subtree_hash = iqnode->subtree_hash;
     }
     
     // Recursively transfer for all children

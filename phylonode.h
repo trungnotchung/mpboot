@@ -14,7 +14,7 @@
 
 #include "node.h"
 #include "mutation.h"
-#include "treehash.h"
+#include "pllrepo/src/treehash_utils.h"
 
 typedef short int UBYTE;
 
@@ -194,7 +194,7 @@ public:
      * Hash value for this node's subtree topology
      * Used for fast tree comparison in SPR operations
      */
-    TreeHash128 subtree_hash;
+    pllTreeHash128 subtree_hash;
 };
 
 /**
