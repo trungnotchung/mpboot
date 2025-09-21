@@ -110,6 +110,9 @@
 #else
     // no vectorization
 #define VECTOR_SIZE 1
+#define USHORT_PER_VECTOR 1
+#define INTS_PER_VECTOR 1
+#define LONG_INTS_PER_VECTOR 1
 #endif
 
 #include "pllrepo/src/pll.h"
@@ -2429,6 +2432,33 @@ unsigned int evaluateParsimonyWithoutBreakingOriginalTree(pllInstance *tr, parti
 	return result;
 }
 
+static pllTreeHash128 computeTreeHashForValidation(nodeptr p, nodeptr dad, int numOriginalSamples)
+{
+	if (p->number <= numOriginalSamples) {
+		return pllTreeHashComputeLeaf(p->number - 1);
+	} else {
+		pllTreeHash128 child_hashes[3];
+		int num_children = 0;
+
+		nodeptr q = p->next;
+		while (q != p) {
+			if (q->back != dad) {
+				child_hashes[num_children] = computeTreeHashForValidation(q->back, p, numOriginalSamples);
+				num_children++;
+			}
+			q = q->next;
+		}
+
+		return pllTreeHashComputeInternal(child_hashes, num_children);
+	}
+}
+
+static pllTreeHash128 getOriginalTreeHash(pllInstance *tr)
+{
+	int numOriginalSamples = tr->mxtips - tr->numMissingSamples;
+	return computeTreeHashForValidation(tr->start, NULL, numOriginalSamples);
+}
+
 static int rearrangeParsimonyWithoutBreakingOriginalTree(pllInstance *tr, partitionList *pr, nodeptr p, int mintrav, int maxtrav, pllBoolean doAll, int perSiteScores)
 {
 	nodeptr
@@ -2455,6 +2485,11 @@ static int rearrangeParsimonyWithoutBreakingOriginalTree(pllInstance *tr, partit
 
 	q = p->back;
 
+	// Store original hashes of nodes that will be affected by SPR
+	int numOriginalSamples = tr->mxtips - tr->numMissingSamples;
+	pllTreeHash128 originalPHash = computeTreeHashForValidation(p, q, numOriginalSamples);
+	pllTreeHash128 originalQHash = computeTreeHashForValidation(q, p, numOriginalSamples);
+
 	unsigned int mp = evaluateParsimonyWithoutBreakingOriginalTree(tr, pr, p, PLL_FALSE, perSiteScores); // Diep: This is VERY important to make sure SPR is accurate*****
 	if (perSiteScores) {
 		// If UFBoot is enabled ...
@@ -2472,17 +2507,10 @@ static int rearrangeParsimonyWithoutBreakingOriginalTree(pllInstance *tr, partit
 			return 0;
 	}
 
-	if (p->numExistingSamples != 0 && p->numExistingSamples != tr->mxtips - tr->numMissingSamples) {
-		doP = PLL_FALSE;
-	}
-	if (q->numExistingSamples != 0 && q->numExistingSamples != tr->mxtips - tr->numMissingSamples) {
-		doQ = PLL_FALSE;
-	}
-
 	// cout << p->number << " " << q->number << endl;
 	// cout << p->numOriginalLeaves << " " << q->numOriginalLeaves << endl;
 
-	if ((p->number > tr->mxtips) && doP) {
+	if (p->number > tr->mxtips) {
 		p1 = p->next->back;
 		p2 = p->next->next->back;
 
@@ -2506,7 +2534,7 @@ static int rearrangeParsimonyWithoutBreakingOriginalTree(pllInstance *tr, partit
 			newviewParsimonyWithoutBreakingOriginalTree(tr, pr, p, perSiteScores);
 		}
 
-		if ((q->number > tr->mxtips) && (maxtrav > 0) && doQ) {
+		if ((q->number > tr->mxtips) && (maxtrav > 0)) {
 			q1 = q->next->back;
 			q2 = q->next->next->back;
 
@@ -2534,6 +2562,13 @@ static int rearrangeParsimonyWithoutBreakingOriginalTree(pllInstance *tr, partit
 				newviewParsimonyWithoutBreakingOriginalTree(tr, pr, q, perSiteScores);
 			}
 		}
+	}
+
+	pllTreeHash128 currentPHash = computeTreeHashForValidation(p, q, numOriginalSamples);
+	pllTreeHash128 currentQHash = computeTreeHashForValidation(q, p, numOriginalSamples);
+
+	if (!pllTreeHashEqual(&originalPHash, &currentPHash) || !pllTreeHashEqual(&originalQHash, &currentQHash)) {
+		return 0;
 	}
 
 	return 1;
