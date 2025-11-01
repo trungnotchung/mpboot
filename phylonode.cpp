@@ -19,6 +19,9 @@ void PhyloNeighbor::clearForwardPartialLh(Node *dad) {
 			((PhyloNeighbor*)*it)->clearForwardPartialLh(node);
 }
 
+void PhyloNeighbor::clearMutations() {
+	mutations.clear();
+}
 
 void PhyloNode::clearReversePartialLh(PhyloNode *dad) {
 	PhyloNeighbor *node_nei = (PhyloNeighbor*)findNeighbor(dad);
@@ -62,10 +65,22 @@ PhyloNode::PhyloNode(int aid, const char *aname) : Node(aid, aname) {
 }
 
 void PhyloNode::init() {
-	//partial_lh = NULL;
+	missingIndex = -1;
 }
 
 
 void PhyloNode::addNeighbor(Node *node, double length, int id) {
 	neighbors.push_back(new PhyloNeighbor(node, length, id));
+}
+
+void PhyloNode::setMissingNode(int index) {
+    missingIndex = index;
+}
+
+bool PhyloNode::checkMissingNode() {
+    return missingIndex != -1;
+}
+
+int PhyloNode::getMissingIndex() {
+    return missingIndex;
 }

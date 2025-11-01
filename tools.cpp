@@ -552,6 +552,12 @@ void get2RandNumb(const int size, int &first, int &second) {
 
 void parseArg(int argc, char *argv[], Params &params) {
     int cnt;
+	params.num_existing_sequences = INT_MAX;
+	params.num_missing_sequences = 0;
+	params.mutation_tree_file = NULL;
+	params.ppon = false;
+	params.pp_verify_preserved_tree = false;
+	params.original_tree_file = NULL;
     verbose_mode = VB_MIN;
     params.tree_gen = NONE;
     params.user_file = NULL;
@@ -851,6 +857,40 @@ void parseArg(int argc, char *argv[], Params &params) {
 #endif
                 continue;
             }
+			if (strcmp(argv[cnt], "-pp_on") == 0)
+			{
+				params.ppon = true;
+				continue;
+			}
+			if (strcmp(argv[cnt], "-pp_origin") == 0)
+			{
+				cnt++;
+				params.original_tree_file = argv[cnt];
+				continue;
+			}
+			if (strcmp(argv[cnt], "-pp_n") == 0)
+			{
+				cnt++;
+				params.num_existing_sequences = convert_int(argv[cnt]);
+				continue;
+			}
+			if (strcmp(argv[cnt], "-pp_k") == 0)
+			{
+				cnt++;
+				params.num_missing_sequences = convert_int(argv[cnt]);
+				continue;
+			}
+			if (strcmp(argv[cnt], "-pp_tree") == 0)
+			{
+				cnt++;
+				params.mutation_tree_file = argv[cnt];
+				continue;
+			}
+			if (strcmp(argv[cnt], "-pp_test_optimize") == 0)
+			{
+				params.pp_verify_preserved_tree = true;
+				continue;
+			}
 			if (strcmp(argv[cnt], "-ho") == 0 || strcmp(argv[cnt], "-?") == 0) {
 //				usage_iqtree(argv, false);
 				usage_mpboot(argv, false);
@@ -3087,31 +3127,40 @@ void usage_mpboot(char* argv[], bool full_command) {
 }
 
 InputType detectInputFile(char *input_file) {
+	try {
+		ifstream in;
+		in.exceptions(ios::failbit | ios::badbit);
+		in.open(input_file);
 
-    try {
-        ifstream in;
-        in.exceptions(ios::failbit | ios::badbit);
-        in.open(input_file);
-
-        unsigned char ch;
-        int count = 0;
-        do {
-            in >> ch;
-        } while (ch <= 32 && !in.eof() && count++ < 20);
-        in.close();
-        switch (ch) {
-            case '#': return IN_NEXUS;
-            case '(': return IN_NEWICK;
-            case '[': return IN_NEWICK;
-            case '>': return IN_FASTA;
-            default:
-                if (isdigit(ch)) return IN_PHYLIP;
-                return IN_OTHER;
-        }
-    } catch (ios::failure) {
-        outError("Cannot read file ", input_file);
-    }
-    return IN_OTHER;
+		unsigned char ch;
+		int count = 0;
+		do {
+			in >> ch;
+		} while (ch <= 32 && !in.eof() && count++ < 20);
+		char tmp = 'N';
+		in >> tmp;
+		in.close();
+		switch (ch) {
+		case '#':
+			if (tmp == 'N')
+				return IN_NEXUS;
+			return IN_VCF;
+		case '(':
+			return IN_NEWICK;
+		case '[':
+			return IN_NEWICK;
+		case '>':
+			return IN_FASTA;
+		default:
+			if (isdigit(ch))
+				return IN_PHYLIP;
+			return IN_OTHER;
+		}
+	}
+	catch (ios::failure) {
+		outError("Cannot read file ", input_file);
+	}
+	return IN_OTHER;
 }
 
 bool overwriteFile(char *filename) {

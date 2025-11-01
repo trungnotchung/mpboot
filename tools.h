@@ -314,7 +314,7 @@ const int SW_AVG_PRESENT = 4; // take the split weight average over all trees th
         input type, tree or splits graph
  */
 enum InputType {
-    IN_NEWICK, IN_NEXUS, IN_FASTA, IN_PHYLIP, IN_OTHER
+    IN_NEWICK, IN_NEXUS, IN_FASTA, IN_PHYLIP, IN_VCF, IN_OTHER
 };
 
 /**
@@ -411,6 +411,35 @@ extern int NNI_MAX_NR_STEP;
         program parameters, everything is specified here
  */
 struct Params {
+        /**
+         *  Enable placement
+         */
+        bool ppon;
+
+        /**
+         *  Number of starting row
+         */
+        int num_existing_sequences;
+
+        /**
+         * Number of adding row
+         */
+        int num_missing_sequences;
+
+        /**
+         * Tree file name
+         */
+        char *mutation_tree_file;
+
+        /**
+         * Original tree file name
+         */
+        char *original_tree_file;
+
+        /**
+         * Checking correct tree
+         */
+        bool pp_verify_preserved_tree;
 
 	/**
 	 *  Number of starting parsimony trees

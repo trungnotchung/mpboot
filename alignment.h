@@ -16,6 +16,7 @@
 #include "pattern.h"
 #include "ncl/ncl.h"
 #include "tools.h"
+#include "mutation.h"
 
 // IMPORTANT: refactor STATE_UNKNOWN
 //const char STATE_UNKNOWN = 126;
@@ -58,7 +59,7 @@ public:
             @param sequence_type type of the sequence, either "BIN", "DNA", "AA", or NULL
             @param intype (OUT) input format of the file
      */
-    Alignment(char *filename, char *sequence_type, InputType &intype);
+    Alignment(char *filename, char *sequence_type, InputType &intype, int existing_sequence = INT_MAX);
 
     /**
             destructor
@@ -609,6 +610,126 @@ public:
     int n_informative_patterns;
     int n_informative_sites;
 
+	/**
+	 * Names of sequences that are missing from the current alignment but present in the VCF file.
+	 * These sequences will be processed separately during VCF file reading.
+	 */
+	vector<string> missing_seq_names;
+
+	/**
+	 * Actual sequence data for the missing sequences.
+	 * Each string represents a complete sequence for one missing sample.
+	 */
+	vector<string> missing_sequences;
+
+	/**
+	 * Initial state of each column in the alignment before rotation
+	 * Used for finding rotated column permutations to optimize memory usage and processing.
+	 */
+	vector<string> initial_column_state;
+
+	/**
+	 * Mutations found in missing sequences (sequences not in the current alignment).
+	 * Each inner vector contains mutations for one missing sequence.
+	 * Used to track mutations that need to be processed separately.
+	 */
+	vector<vector<Mutation>> missing_sample_mutations;
+
+	/**
+	 * Mutations found in existing sequences (sequences already in the alignment).
+	 * Each inner vector contains mutations for one existing sequence.
+	 * Used to track mutations that have already been incorporated into the alignment.
+	 */
+	vector<vector<Mutation>> existing_sample_mutations;
+
+	/**
+	 * Reference nucleotides for each position in the alignment.
+	 * Used to track the original nucleotide at each position before mutations.
+	 */
+	vector<int> reference_nuc;
+
+	/**
+	 * Replaces the current alignment with new sequences.
+	 * @param new_seqs Vector of new sequences to replace the current alignment
+	 * @param perm_col Vector of column permutations to apply to the new sequences
+	 * 
+	 * This function is used when updating the alignment with new sequence data,
+	 * typically after processing a batch of VCF data.
+	 */
+	void updateAlignmentNewSequences(const vector<string> &new_seqs, const vector<int> &perm_col);
+
+	/**
+	 * Adds a single new sequence to the current alignment.
+	 * @param new_seq_name Name of the new sequence to add
+	 * @param new_seq The actual sequence data to add
+	 * 
+	 * The sequence must be the same length as existing sequences in the alignment.
+	 * This function handles the conversion of sequence characters to internal states
+	 * and updates the pattern information accordingly.
+	 */
+	void addToAlignmentNewSequence(const string &new_seq_name, const string &new_seq);
+
+	/**
+	 * Adds multiple new sequences to the current alignment.
+	 * @param new_seq_names Vector of names for the new sequences
+	 * @param new_seqs Vector of sequence data for the new sequences
+	 * 
+	 * All sequences must be the same length as existing sequences in the alignment.
+	 * This function efficiently processes multiple sequences at once by updating
+	 * patterns and site information in a single pass.
+	 */
+	void addToAlignmentNewSequences(const vector<string> &new_seq_names, const vector<string> &new_seqs);
+
+	/**
+	 * Converts an internal state code to its corresponding mutation character.
+	 * @param state Internal state code to convert
+	 * @return Character representing the mutation (e.g., 'A', 'C', 'G', 'T' for DNA)
+	 */
+	char getMutationFromState(char state);
+
+	/**
+	 * Converts a mutation character to its corresponding internal state code.
+	 * @param nuc Nucleotide character to convert
+	 * @return Internal state code for the nucleotide
+	 */
+	int getStateFromMutation(int nuc);
+
+	/**
+	 * Finds the optimal column permutation.
+	 * @return Vector of integers representing the origin order
+	 */
+	vector<int> findRotatedColumnPermutation();
+
+	/**
+	 * Reads a portion of a VCF file to process it in batches.
+	 * @param in Input file stream for the VCF file
+	 * @param sequence_type Type of sequence data (e.g., "DNA", "PROTEIN")
+	 * @param perm_col Vector to store column permutations
+	 * @param existing_sequence Number of sequences already in the alignment
+	 * @param start_index Starting position in the alignment
+	 * @param num_column Number of columns to process in this batch
+	 * @return Number of columns actually processed
+	 * 
+	 * This function is used to process large VCF files in chunks to reduce memory usage.
+	 * It updates the alignment with new sequence data and mutation information.
+	 */
+	int readPartialVCF(ifstream &in, char *sequence_type, vector<int> &perm_col, 
+					int existing_sequence, int start_index, int num_column);
+
+	/**
+	 * Reads and processes a complete VCF file.
+	 * @param file_name Path to the VCF file
+	 * @param sequence_type Type of sequence data (e.g., "DNA", "PROTEIN")
+	 * @param existing_sequence Number of sequences already in the alignment
+	 * @return Number of sites processed
+	 * 
+	 * This function reads a VCF file and builds an alignment from it. It handles:
+	 * - Reading sequence names and data
+	 * - Processing mutations and reference nucleotides
+	 * - Building patterns and updating the alignment
+	 * - Tracking mutations for both existing and missing sequences
+	 */
+	int readVCF(char *file_name, char *sequence_type, int existing_sequence);
 protected:
 
 
