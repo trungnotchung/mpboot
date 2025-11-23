@@ -51,7 +51,7 @@ int readInitialAlignment(ifstream &in_file_stream, char *out_file_name, int num_
 
 int readVCFFile(IQTree *tree, Alignment*& alignment, Params &params) {
 	if (params.num_existing_sequences + params.num_missing_sequences <= MAX_SEQUENCE) {
-		alignment = new Alignment(params.aln_file, params.sequence_type, params.intype, params.num_existing_sequences);
+		alignment = new Alignment(params.aln_file, params.sequence_type, params.intype, params.num_existing_sequences, params.num_missing_sequences);
 		tree->setAlignment(alignment);
 		tree->aln = alignment;
 		vector<int> rotatedColumnPermutation = alignment->findRotatedColumnPermutation();
@@ -78,7 +78,7 @@ int readVCFFile(IQTree *tree, Alignment*& alignment, Params &params) {
 
 	while (true) {
 		int numProcessedColumn = (alignment)->readPartialVCF(in, params.sequence_type, rotatedColumnPermutation, 
-			params.num_existing_sequences, totalColumn, BATCH_SIZE);
+			params.num_existing_sequences, params.num_missing_sequences, totalColumn, BATCH_SIZE);
 		if (numProcessedColumn == 0)
 			break;
 		tree->clearAllPartialLH();
@@ -131,18 +131,31 @@ void placeNewSamplesOntoExistingTree(Params &params) {
 		tree->computeExcessMutations(input);
 		tree->addNewSample(input.best_node, input.best_node_branch, excess_mutations, i, alignment->missing_seq_names[i]);
 	}
-	cout << "\n========== Finished placement core ==========\n";
 	cout << "Time: " << fixed << setprecision(3) << (double)(getCPUTime() - start_time) << " seconds\n";
 	cout << "Memory: " << getMemory() << " KB\n";
 	cout << "New tree's parsimony score computed by mutation: " << tree->computeParsimonyScoreMutation() << '\n';
+	cout << "\n========== Finished placement core ==========\n";
+
+	if (params.pp_spr) {
+		tree->params = &params;
+		tree->sprTransformationWithoutBreakingOriginalTree();
+
+		if (params.pp_verify_preserved_tree) {
+			ofstream fout("new_tree.treefile");
+			tree->printTree(fout, WT_SORT_TAXA | WT_NEWLINE);
+			fout.close();
+			checkCorrectTree(params.mutation_tree_file, "new_tree.treefile", params.num_existing_sequences);
+			std::remove("new_tree.treefile");
+		}
+	}
 
 	delete alignment;
 	alignment = NULL;
 	delete tree;
 }
 
-void checkCorectTree(char *origin_tree_file, char *new_tree_file) {
-	cout << "================= Start checking correct tree ================\n";
+void checkCorrectTree(char *origin_tree_file, char *new_tree_file, int n_original) {
+	cout << "\n================= Start checking correct tree ================\n";
 	IQTree *origin_tree = new IQTree;
 	bool origin_tree_is_rooted = false;
 	origin_tree->readTree(origin_tree_file, origin_tree_is_rooted);
@@ -151,19 +164,13 @@ void checkCorectTree(char *origin_tree_file, char *new_tree_file) {
 	bool new_tree_is_rooted = false;
 	new_tree->readTree(new_tree_file, new_tree_is_rooted);
 
-	vector<string> origin_tree_leaves_name;
-	origin_tree->getLeavesName(origin_tree_leaves_name);
-
-	new_tree->assignRoot(origin_tree_leaves_name[0]);
-	sort(origin_tree_leaves_name.begin(), origin_tree_leaves_name.end());
-	new_tree->initNodeData(origin_tree_leaves_name);
-
-	if (new_tree->compareTree(origin_tree)) {
-		cout << "Finish checking correct tree: Correct tree detected\n";
+	if (new_tree->compareTreeByHash(origin_tree, n_original)) {
+		cout << "Correct tree detected\n";
 	}
 	else {
-		cout << "Finish checking correct tree: Wrong tree detected\n";
+		cout << "Wrong tree detected\n";
 	}
+	cout << "\n================= Finished checking correct tree ================\n";
 
 	delete origin_tree;
 	delete new_tree;

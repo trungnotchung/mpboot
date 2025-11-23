@@ -97,6 +97,7 @@ extern "C" {
 
 #include "stack.h"
 #include "newick.h"
+#include "treehash_utils.h"
 #include "queue.h"
 
 #define PLL_MAX_TIP_EV                          0.999999999 /* max tip vector value, sum of EVs needs to be smaller than 1.0, otherwise the numerics break down */
@@ -298,6 +299,7 @@ typedef struct
   int useRecom;
   long randomNumberSeed;
   int numberOfThreads;
+  int numMissingSamples;
 } pllInstanceAttr;
 
 /** @brief Stores the recomputation-state of likelihood vectors  */
@@ -692,11 +694,13 @@ typedef  struct noderec
   struct noderec  *next;        
   struct noderec  *back;       
   hashNumberType   hash;
+  pllTreeHash128   subtree_hash;        // 128-bit subtree hash for fast tree comparison
   int              support;
   int              number;    
   char             x;
   char             xPars;
   char             xBips;
+  int              numExistingSamples; // 0: not contain original node, 1: contains original node
 }
   node, *nodeptr;
 
@@ -1258,7 +1262,7 @@ typedef  struct  {
   pllBoolean        compressPatterns;
   double         likelihoodEpsilon;
   pllBoolean        useCheckpoint;
-
+  int              numMissingSamples;
 } pllInstance;
 
 /** @brief Stores data related to a NNI move  */

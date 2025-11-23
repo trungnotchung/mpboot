@@ -15,5 +15,5 @@ void placeNewSamplesOntoExistingTree(Params &params);
 /**
  * Check if origin tree doesn't change.
  */
-void checkCorrectTree(char *originTreeFile, char *newTreeFile);
+void checkCorrectTree(char *originTreeFile, char *newTreeFile, int n_original);
 #endif

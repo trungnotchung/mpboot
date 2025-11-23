@@ -246,6 +246,7 @@ struct LeafFreq {
  */
 void precomputeFitchInfo();
 
+
 /**
 Phylogenetic Tree class
 

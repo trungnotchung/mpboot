@@ -6,6 +6,7 @@
  */
 #include "sprparsimony.h"
 #include "parstree.h"
+#include "pllrepo/src/treehash_utils.h"
 #include <string>
 /**
  * PLL (version 1.0.0) a software library for phylogenetic inference
@@ -109,6 +110,9 @@
 #else
     // no vectorization
 #define VECTOR_SIZE 1
+#define USHORT_PER_VECTOR 1
+#define INTS_PER_VECTOR 1
+#define LONG_INTS_PER_VECTOR 1
 #endif
 
 #include "pllrepo/src/pll.h"
@@ -429,6 +433,113 @@ static void getxnodeLocal (nodeptr p)
 
   assert(p->next->xPars || p->next->next->xPars || p->xPars);
 
+}
+
+static void computeTreeHashForPllNode(nodeptr p, int numOriginalSamples)
+{
+    if (p->number <= numOriginalSamples) {
+        // Leaf node with existing sample - compute leaf hash
+        p->subtree_hash = pllTreeHashComputeLeaf(p->number - 1); // Convert to 0-based index
+    } else if (p->number > numOriginalSamples) {
+        // Internal node or new sample - compute from children if they have existing samples
+        pllTreeHash128 child_hashes[3];
+        int valid_child_count = 0;
+
+        // Check all three directions for internal nodes
+        if (p->next) {
+            nodeptr q = p->next->back;
+            nodeptr r = p->next->next->back;
+
+            // Only include children that have existing samples
+            if (q && q->numExistingSamples) {
+                child_hashes[valid_child_count++] = q->subtree_hash;
+            }
+            if (r && r->numExistingSamples) {
+                child_hashes[valid_child_count++] = r->subtree_hash;
+            }
+        }
+
+        if (valid_child_count > 0) {
+            // Sort child hashes for order independence
+            pllTreeHashSort(child_hashes, valid_child_count);
+            p->subtree_hash = pllTreeHashComputeInternal(child_hashes, valid_child_count);
+        } else {
+            // No children with existing samples
+            p->subtree_hash = pllTreeHashInitZero();
+        }
+    } else {
+        // New sample (number > numOriginalSamples) gets zero hash
+        p->subtree_hash = pllTreeHashInitZero();
+    }
+}
+
+static void computeTraversalInfoParsimonyWithoutBreakingOriginalTree(nodeptr p, int *ti, int *counter, int maxTips, pllBoolean full, int perSiteScores, int numMissingSamples)
+{
+#if (defined(__SSE3) || defined(__AVX))
+  if (perSiteScores && pllCostMatrix == NULL)
+  {
+    resetPerSiteNodeScores(iqtree->pllPartitions, p->number);
+  }
+#endif
+
+	nodeptr
+		q = p->next->back,
+		r = p->next->next->back;
+
+	if (!p->xPars) {
+		getxnodeLocal(p);
+	}
+
+	int numOriginalSamples = maxTips - numMissingSamples;
+
+	if (full) {
+		if (q->number > maxTips) {
+			computeTraversalInfoParsimonyWithoutBreakingOriginalTree(q, ti, counter, maxTips, full, perSiteScores, numMissingSamples);
+		} else {
+			q->numExistingSamples = q->number <= numOriginalSamples;
+			// Compute hash for leaf node
+			computeTreeHashForPllNode(q, numOriginalSamples);
+		}
+
+		if (r->number > maxTips) {
+			computeTraversalInfoParsimonyWithoutBreakingOriginalTree(r, ti, counter, maxTips, full, perSiteScores, numMissingSamples);
+		} else {
+			r->numExistingSamples = r->number <= numOriginalSamples;
+			// Compute hash for leaf node
+			computeTreeHashForPllNode(r, numOriginalSamples);
+		}
+
+		// After processing children, compute hash for internal node
+		computeTreeHashForPllNode(p, numOriginalSamples);
+
+		p->numExistingSamples = q->numExistingSamples + r->numExistingSamples;
+	} else {
+		if (q->number > maxTips && !q->xPars) {
+			computeTraversalInfoParsimonyWithoutBreakingOriginalTree(q, ti, counter, maxTips, full, perSiteScores, numMissingSamples);
+		} else if (q->number <= maxTips) {
+			q->numExistingSamples = q->number <= numOriginalSamples;
+			// Compute hash for leaf node
+			computeTreeHashForPllNode(q, numOriginalSamples);
+		}
+
+		if (r->number > maxTips && !r->xPars) {
+			computeTraversalInfoParsimonyWithoutBreakingOriginalTree(r, ti, counter, maxTips, full, perSiteScores, numMissingSamples);
+		} else if (r->number <= maxTips) {
+			r->numExistingSamples = r->number <= numOriginalSamples;
+			// Compute hash for leaf node
+			computeTreeHashForPllNode(r, numOriginalSamples);
+		}
+
+		// After processing children, compute hash for internal node
+		computeTreeHashForPllNode(p, numOriginalSamples);
+
+		p->numExistingSamples = q->numExistingSamples + r->numExistingSamples;
+	}
+
+	ti[*counter] = p->number;
+	ti[*counter + 1] = q->number;
+	ti[*counter + 2] = r->number;
+	*counter = *counter + 4;
 }
 
 static void computeTraversalInfoParsimony(nodeptr p, int *ti, int *counter, int maxTips, pllBoolean full, int perSiteScores)
@@ -1916,6 +2027,21 @@ static unsigned int evaluateParsimony(pllInstance *tr, partitionList *pr, nodept
 	return result;
 }
 
+void newviewParsimonyWithoutBreakingOriginalTree(pllInstance *tr, partitionList *pr, nodeptr  p, int perSiteScores)
+{
+  if(p->number <= tr->mxtips)
+    return;
+
+  {
+    int
+      counter = 4;
+
+    computeTraversalInfoParsimonyWithoutBreakingOriginalTree(p, tr->ti, &counter, tr->mxtips, PLL_FALSE, perSiteScores, tr->numMissingSamples);
+    tr->ti[0] = counter;
+
+    newviewParsimonyIterativeFast(tr, pr, perSiteScores);
+  }
+}
 
 static void newviewParsimony(pllInstance *tr, partitionList *pr, nodeptr  p, int perSiteScores)
 {
@@ -2254,6 +2380,198 @@ static nodeptr  removeNodeParsimony (nodeptr p)
   p->next->next->back = p->next->back = (node *) NULL;
 
   return  q;
+}
+
+unsigned int evaluateParsimonyWithoutBreakingOriginalTree(pllInstance *tr, partitionList *pr, nodeptr p, pllBoolean full, int perSiteScores)
+{
+	volatile unsigned int result;
+	nodeptr q = p->back;
+	int
+		*ti = tr->ti,
+		counter = 4;
+
+	ti[1] = p->number;
+	ti[2] = q->number;
+
+	int numOriginalSamples = tr->mxtips - tr->numMissingSamples;
+
+	if (full) {
+		if (p->number > tr->mxtips) {
+			computeTraversalInfoParsimonyWithoutBreakingOriginalTree(p, ti, &counter, tr->mxtips, full, perSiteScores, tr->numMissingSamples);
+		} else {
+			p->numExistingSamples = p->number <= numOriginalSamples;
+			computeTreeHashForPllNode(p, numOriginalSamples);
+		}
+		if (q->number > tr->mxtips) {
+			computeTraversalInfoParsimonyWithoutBreakingOriginalTree(q, ti, &counter, tr->mxtips, full, perSiteScores, tr->numMissingSamples);
+		} else {
+			q->numExistingSamples = q->number <= numOriginalSamples;
+			computeTreeHashForPllNode(q, numOriginalSamples);
+		}
+	}
+	else
+	{
+		if (p->number > tr->mxtips && !p->xPars) {
+			computeTraversalInfoParsimonyWithoutBreakingOriginalTree(p, ti, &counter, tr->mxtips, full, perSiteScores, tr->numMissingSamples);
+		} else if (p->number <= tr->mxtips) {
+			p->numExistingSamples = p->number <= numOriginalSamples;
+			computeTreeHashForPllNode(p, numOriginalSamples);
+		}
+		if (q->number > tr->mxtips && !q->xPars) {
+			computeTraversalInfoParsimonyWithoutBreakingOriginalTree(q, ti, &counter, tr->mxtips, full, perSiteScores, tr->numMissingSamples);
+		} else if (q->number <= tr->mxtips) {
+			q->numExistingSamples = q->number <= numOriginalSamples;
+			computeTreeHashForPllNode(q, numOriginalSamples);
+		}
+	}
+
+	ti[0] = counter;
+
+	result = evaluateParsimonyIterativeFast(tr, pr, perSiteScores);
+
+	return result;
+}
+
+static pllTreeHash128 computeTreeHashForValidation(nodeptr p, nodeptr dad, int numOriginalSamples)
+{
+	if (p->number <= numOriginalSamples) {
+		return pllTreeHashComputeLeaf(p->number - 1);
+	} else {
+		pllTreeHash128 child_hashes[3];
+		int num_children = 0;
+
+		nodeptr q = p->next;
+		while (q != p) {
+			if (q->back != dad) {
+				child_hashes[num_children] = computeTreeHashForValidation(q->back, p, numOriginalSamples);
+				num_children++;
+			}
+			q = q->next;
+		}
+
+		return pllTreeHashComputeInternal(child_hashes, num_children);
+	}
+}
+
+static pllTreeHash128 getOriginalTreeHash(pllInstance *tr)
+{
+	int numOriginalSamples = tr->mxtips - tr->numMissingSamples;
+	return computeTreeHashForValidation(tr->start, NULL, numOriginalSamples);
+}
+
+static int rearrangeParsimonyWithoutBreakingOriginalTree(pllInstance *tr, partitionList *pr, nodeptr p, int mintrav, int maxtrav, pllBoolean doAll, int perSiteScores)
+{
+	nodeptr
+		p1,
+		p2,
+		q,
+		q1,
+		q2;
+
+	int
+		mintrav2;
+
+	pllBoolean
+		doP = PLL_TRUE,
+		doQ = PLL_TRUE;
+
+	if (maxtrav > tr->ntips - 3)
+		maxtrav = tr->ntips - 3;
+
+	assert(mintrav == 1);
+
+	if (maxtrav < mintrav)
+		return 0;
+
+	q = p->back;
+
+	// Store original hashes of nodes that will be affected by SPR
+	int numOriginalSamples = tr->mxtips - tr->numMissingSamples;
+	pllTreeHash128 originalPHash = computeTreeHashForValidation(p, q, numOriginalSamples);
+	pllTreeHash128 originalQHash = computeTreeHashForValidation(q, p, numOriginalSamples);
+
+	unsigned int mp = evaluateParsimonyWithoutBreakingOriginalTree(tr, pr, p, PLL_FALSE, perSiteScores); // Diep: This is VERY important to make sure SPR is accurate*****
+	if (perSiteScores) {
+		// If UFBoot is enabled ...
+		pllSaveCurrentTreeSprParsimony(tr, pr, mp); // run UFBoot
+	}
+
+	if (tr->constrained) {
+		if (!tipHomogeneityCheckerPars(tr, p->back, 0))
+			doP = PLL_FALSE;
+
+		if (!tipHomogeneityCheckerPars(tr, q->back, 0))
+			doQ = PLL_FALSE;
+
+		if (doQ == PLL_FALSE && doP == PLL_FALSE)
+			return 0;
+	}
+
+	// cout << p->number << " " << q->number << endl;
+	// cout << p->numOriginalLeaves << " " << q->numOriginalLeaves << endl;
+
+	if (p->number > tr->mxtips) {
+		p1 = p->next->back;
+		p2 = p->next->next->back;
+
+		if ((p1->number > tr->mxtips) || (p2->number > tr->mxtips)) {
+			// removeNodeParsimony(p, tr);
+			removeNodeParsimony(p);
+
+			if ((p1->number > tr->mxtips)) {
+				addTraverseParsimony(tr, pr, p, p1->next->back, mintrav, maxtrav, doAll, PLL_FALSE, perSiteScores);
+				addTraverseParsimony(tr, pr, p, p1->next->next->back, mintrav, maxtrav, doAll, PLL_FALSE, perSiteScores);
+			}
+
+			if ((p2->number > tr->mxtips)) {
+				addTraverseParsimony(tr, pr, p, p2->next->back, mintrav, maxtrav, doAll, PLL_FALSE, perSiteScores);
+				addTraverseParsimony(tr, pr, p, p2->next->next->back, mintrav, maxtrav, doAll, PLL_FALSE, perSiteScores);
+			}
+
+			hookupDefault(p->next, p1);
+			hookupDefault(p->next->next, p2);
+
+			newviewParsimonyWithoutBreakingOriginalTree(tr, pr, p, perSiteScores);
+		}
+
+		if ((q->number > tr->mxtips) && (maxtrav > 0)) {
+			q1 = q->next->back;
+			q2 = q->next->next->back;
+
+			if (((q1->number > tr->mxtips) && ((q1->next->back->number > tr->mxtips) || (q1->next->next->back->number > tr->mxtips)))
+				|| ((q2->number > tr->mxtips) && ((q2->next->back->number > tr->mxtips) || (q2->next->next->back->number > tr->mxtips)))) {
+
+				// removeNodeParsimony(q, tr);
+				removeNodeParsimony(q);
+
+				mintrav2 = mintrav > 2 ? mintrav : 2;
+
+				if ((q1->number > tr->mxtips)) {
+					addTraverseParsimony(tr, pr, q, q1->next->back, mintrav2, maxtrav, doAll, PLL_FALSE, perSiteScores);
+					addTraverseParsimony(tr, pr, q, q1->next->next->back, mintrav2, maxtrav, doAll, PLL_FALSE, perSiteScores);
+				}
+
+				if ((q2->number > tr->mxtips)) {
+					addTraverseParsimony(tr, pr, q, q2->next->back, mintrav2, maxtrav, doAll, PLL_FALSE, perSiteScores);
+					addTraverseParsimony(tr, pr, q, q2->next->next->back, mintrav2, maxtrav, doAll, PLL_FALSE, perSiteScores);
+				}
+
+				hookupDefault(q->next, q1);
+				hookupDefault(q->next->next, q2);
+
+				newviewParsimonyWithoutBreakingOriginalTree(tr, pr, q, perSiteScores);
+			}
+		}
+	}
+
+	pllTreeHash128 currentPHash = computeTreeHashForValidation(p, q, numOriginalSamples);
+	pllTreeHash128 currentQHash = computeTreeHashForValidation(q, p, numOriginalSamples);
+
+	if (!pllTreeHashEqual(&originalPHash, &currentPHash) || !pllTreeHashEqual(&originalQHash, &currentQHash)) {
+		return 0;
+	}
+
+	return 1;
 }
 
 static int rearrangeParsimony(pllInstance *tr, partitionList *pr, nodeptr p, int mintrav, int maxtrav, pllBoolean doAll, int perSiteScores)
@@ -3232,6 +3550,75 @@ void _pllComputeRandomizedStepwiseAdditionParsimonyTree(pllInstance * tr, partit
 	_pllFreeParsimonyDataStructures(tr, partitions);
 	doing_stepwise_addition = false;
 //	cout << "Done free..." << endl;
+}
+
+/**
+ * DTH: optimize whatever tree is stored in tr by parsimony SPR without breaking the original tree
+ * @param tr: the tree instance :)
+ * @param partition: the data partition :)
+ * @param mintrav, maxtrav are PLL limitations for SPR radius
+ * @return best parsimony score found
+ */
+int pllOptimizeSprParsimonyWithoutBreakingOriginalTree(pllInstance *tr, partitionList *pr, int mintrav, int maxtrav, IQTree *_iqtree)
+{
+	int perSiteScores = globalParam->gbo_replicates > 0;
+
+	iqtree = _iqtree; // update pointer to IQTree
+
+	if (globalParam->ratchet_iter >= 0 && (iqtree->on_ratchet_hclimb1 || iqtree->on_ratchet_hclimb2)) {
+		_updateInternalPllOnRatchet(tr, pr);
+		_allocateParsimonyDataStructures(tr, pr, perSiteScores); // called once if not running ratchet
+	}
+	else if (first_call || (iqtree && iqtree->on_opt_btree)) {
+		_allocateParsimonyDataStructures(tr, pr, perSiteScores); // called once if not running ratchet
+	}
+	if (first_call) {
+		first_call = false;
+	}
+
+	int i;
+	unsigned int
+		randomMP,
+		startMP;
+
+	assert(!tr->constrained);
+
+	nodeRectifierPars(tr);
+
+	tr->bestParsimony = UINT_MAX;
+	tr->bestParsimony = evaluateParsimonyWithoutBreakingOriginalTree(tr, pr, tr->start, PLL_TRUE, perSiteScores);
+
+	assert(abs(iqtree->curScore) == tr->bestParsimony);
+
+	int j;
+
+	unsigned int bestIterationScoreHits = 1;
+	randomMP = tr->bestParsimony;
+	tr->ntips = tr->mxtips;
+	do {
+		startMP = randomMP;
+		nodeRectifierPars(tr);
+		for (i = 1; i <= tr->mxtips + tr->mxtips - 2; i++) {
+			tr->insertNode = NULL;
+			tr->removeNode = NULL;
+			bestTreeScoreHits = 1;
+
+			rearrangeParsimonyWithoutBreakingOriginalTree(tr, pr, tr->nodep[i], mintrav, maxtrav, PLL_FALSE, perSiteScores);
+
+			if (tr->bestParsimony == randomMP)
+				bestIterationScoreHits++;
+			if (tr->bestParsimony < randomMP)
+				bestIterationScoreHits = 1;
+			if (((tr->bestParsimony < randomMP)
+				|| ((tr->bestParsimony == randomMP) && (random_double() <= 1.0 / bestIterationScoreHits)))
+				&& tr->removeNode && tr->insertNode) {
+				restoreTreeRearrangeParsimony(tr, pr, perSiteScores);
+				randomMP = tr->bestParsimony;
+			}
+		}
+	} while (randomMP < startMP);
+
+	return startMP;
 }
 
 /**

@@ -22,6 +22,7 @@
 #include "phylosupertreeplen.h"
 #include "mexttree.h"
 #include "timeutil.h"
+#include "pllrepo/src/treehash_utils.h"
 #include "model/modelgtr.h"
 #include "model/rategamma.h"
 #include <numeric>
@@ -541,6 +542,7 @@ void IQTree::initializePLL(Params &params) {
     pllAttr.saveMemory = PLL_FALSE;
     pllAttr.useRecom = PLL_FALSE;
     pllAttr.randomNumberSeed = params.ran_seed;
+    pllAttr.numMissingSamples = params.num_missing_sequences;
 #ifdef _OPENMP
     pllAttr.numberOfThreads = params.num_threads; /* This only affects the pthreads version */
 #else
@@ -4539,123 +4541,228 @@ void IQTree::reinsertIdenticalSeqs(Alignment *orig_aln, StrVector &removed_seqs,
     clearAllPartialLH();
 }
 
-void IQTree::getLeavesName(vector<string> &leaves_name) {
-    getLeavesName(root, root->neighbors[0]->node, leaves_name);
-    getLeavesName(root->neighbors[0]->node, root, leaves_name);
+void IQTree::sprTransformationWithoutBreakingOriginalTree() {
+    cout << "\n================= Starting SPR transformation ================\n";
+	deleteAllPartialLh();
+	aln->addToAlignmentNewSequences(aln->missing_seq_names, aln->missing_sequences);
+    curScore = -computeParsimony();
+    cout << "Parsimony score before SPR transformation: " << -curScore << endl;
+
+    if (pllPartitions){
+		myPartitionsDestroy(pllPartitions);
+		pllPartitions = NULL;
+	}
+	if (pllAlignment){
+		pllAlignmentDataDestroy(pllAlignment);
+		pllAlignment = NULL;
+	}
+	if (pllInst){
+		pllDestroyInstance(pllInst);
+		pllInst = NULL;
+	}
+
+	PatternComp pcomp;
+	sort(aln->begin(), aln->end(), pcomp);
+	aln->updateSitePatternAfterOptimized();
+	initializePLL(*params); // because the set of patterns might be a subset of the orig
+    pllNewickTree *btree = pllNewickParseString(getTreeString().c_str());
+	assert(btree != NULL);
+	pllTreeInitTopologyNewick(pllInst, btree, PLL_FALSE);
+	pllNewickParseDestroy(&btree);
+
+    // Hash computation will be done directly in PLL during DFS traversal
+
+    string old_tree_string = getTreeString();
+    size_t index = 0;
+    while (true) {
+        /* Locate the substring to replace. */
+        index = old_tree_string.find(":nan", index);
+        if (index == std::string::npos) break;
+
+        /* Make the replacement. */
+        old_tree_string.replace(index, 4, ":0");
+
+        /* Advance index forward so the next iteration doesn't pick it up as well. */
+        index += 4;
+    }
+
+    int max_spr_rad = params->spr_maxtrav;
+    if(on_opt_btree && params->opt_btree_nni) params->spr_maxtrav = 1;
+
+    pllNewickTree *spr_start_tree = pllNewickParseString(old_tree_string.c_str());
+    assert(spr_start_tree != NULL);
+    pllTreeInitTopologyNewick(pllInst, spr_start_tree, PLL_FALSE);
+
+    // Hash computation will be done directly in PLL during SPR operations
+
+    // ----------------- Key step: ask PLL to run SPR hill-climbing
+    pllOptimizeSprParsimonyWithoutBreakingOriginalTree(pllInst, pllPartitions, params->spr_mintrav, max_spr_rad, this);
+
+    pllNewickParseDestroy(&spr_start_tree);
+
+    pllTreeToNewick(pllInst->tree_string, pllInst, pllPartitions, pllInst->start->back, PLL_TRUE, PLL_TRUE, 0, 0, 0, PLL_SUMMARIZE_LH, 0, 0);
+
+    string new_tree_string = string(pllInst->tree_string);
+    if(new_tree_string == old_tree_string) outError("Tree string stays the same after SPR.");
+    readTreeString(new_tree_string);
+    initializeAllPartialPars();
+    clearAllPartialLH();
+    curScore = -computeParsimony();
+    cout << "Parsimony score after SPR transformation: " << -curScore << endl;
+    cout << "\n================= Finished SPR transformation ================\n";
+
+    _pllFreeParsimonyDataStructures(pllInst, pllPartitions);
 }
 
-void IQTree::getLeavesName(Node *node, Node *dad, vector<string> &leaves_name) {
+
+
+bool IQTree::compareTreeByHash(IQTree *other_tree, int n_original) {
+    if (!other_tree) return false;
+    
+    // Compute hash for both trees
+    pllTreeHash128 hash1 = computeTreeHash((PhyloNode *)root, NULL, n_original);
+    pllTreeHash128 hash2 = other_tree->computeTreeHash((PhyloNode *)other_tree->root, NULL, n_original);
+    
+    return pllTreeHashEqual(&hash1, &hash2);
+}
+
+pllTreeHash128 IQTree::computeTreeHash(PhyloNode *node, PhyloNode *dad, int n_original) {
+    if (!node) {
+        return pllTreeHashInitZero();
+    }
+    
     if (node->isLeaf()) {
-        leaves_name.push_back(node->name);
-        return;
-    }
-    FOR_NEIGHBOR_IT(node, dad, it) {
-        getLeavesName((*it)->node, node, leaves_name);
-        if (node->name == "") {
-            node->name = (*it)->node->name;
-        }
-        else {
-            node->name = min(node->name, (*it)->node->name);
+        if (node->id < n_original) {
+            return pllTreeHashComputeLeaf(node->id);
+        } else {
+            return pllTreeHashInitZero();
         }
     }
-}
-
-void IQTree::assignRoot(string &root_name)
-{
-    if (root->name == root_name)
-        return;
-    assignRoot(root->neighbors[0]->node, root, root_name);
-}
-
-bool IQTree::assignRoot(Node *node, Node *dad, string &root_name)
-{
-    if (node->isLeaf() && node->name == root_name) {
-        root = node;
-        return true;
-    }
+    
+    std::vector<pllTreeHash128> child_hashes;
+    
     FOR_NEIGHBOR_IT(node, dad, it) {
-        if (assignRoot((*it)->node, node, root_name)) {
+        PhyloNode *child = (PhyloNode *)(*it)->node;
+        pllTreeHash128 child_hash = computeTreeHash(child, node, n_original);
+        if (child_hash.high != 0 || child_hash.low != 0) {
+            child_hashes.push_back(child_hash);
+        }
+    }
+    
+    // If no valid children, this subtree doesn't contribute to the hash
+    if (child_hashes.empty()) {
+        return pllTreeHashInitZero();
+    }
+    
+    // Sort child hashes to ensure order independence
+    std::sort(child_hashes.begin(), child_hashes.end(), 
+              [](const pllTreeHash128& a, const pllTreeHash128& b) {
+                  return pllTreeHashLess(&a, &b);
+              });
+    
+    return pllTreeHashComputeInternal(child_hashes.data(), child_hashes.size());
+}
+
+void IQTree::computeAndStoreAllHashes(int n_original) {
+    if (!root) return;
+    
+    // Recursively compute and store hashes for all nodes
+    computeAndStoreNodeHash((PhyloNode *)root, NULL, n_original);
+}
+
+bool IQTree::hasExistingSamples(PhyloNode *node, int n_original) {
+    if (!node) return false;
+    
+    if (node->isLeaf()) {
+        return node->id < n_original;
+    }
+    
+    // For internal nodes, check if any descendant has existing samples
+    FOR_NEIGHBOR_IT(node, NULL, it) {
+        if (hasExistingSamples((PhyloNode *)(*it)->node, n_original)) {
             return true;
         }
     }
+    return false;
 }
 
-int IQTree::initNodeData(vector<string> &leaves_name) {
-    PhyloNode *node1 = (PhyloNode *)root;
-    PhyloNode *node2 = (PhyloNode *)root->neighbors[0]->node;
-
-    int left_child_num_missing_sample = initInfoNode(node1, node2, leaves_name);
-    int right_child_num_missing_sample = initInfoNode(node2, node1, leaves_name);
-    return left_child_num_missing_sample + right_child_num_missing_sample;
-}
-
-int IQTree::initInfoNode(PhyloNode *node, PhyloNode *dad, vector<string> &leaves_name) {
+void IQTree::computeAndStoreNodeHash(PhyloNode *node, PhyloNode *dad, int n_original) {
+    if (!node) return;
+    
     if (node->isLeaf()) {
-        int node_index = lower_bound(leaves_name.begin(), leaves_name.end(), node->name) - leaves_name.begin();
-        if (node_index < leaves_name.size() && leaves_name[node_index] == node->name) {
-            node->setMissingNode(-1);
-            return 1;
+        // For leaf nodes, store hash based on leaf index
+        if (node->id < n_original) {
+            node->subtree_hash = pllTreeHashComputeLeaf(node->id);
+        } else {
+            // New samples get hash of 0 (they don't participate in comparison)
+            node->subtree_hash = pllTreeHashInitZero();
         }
-        else {
-            node->setMissingNode(1);
-            return 0;
-        }
-    }
-
-    int total_missing_sample = 0;
-    bool check = true;
-    FOR_NEIGHBOR_IT(node, dad, it) {
-        int num_missing_sample = initInfoNode((PhyloNode *)(*it)->node, node, leaves_name);
-        if (num_missing_sample == 0) {
-            check = false;
-        }
-        else {
-            if (node->name == "") {
-                node->name = (*it)->node->name;
-            }
-            else {
-                node->name = min(node->name, (*it)->node->name);
+    } else {
+        // For internal nodes, compute hash from children
+        std::vector<pllTreeHash128> child_hashes;
+        
+        FOR_NEIGHBOR_IT(node, dad, it) {
+            PhyloNode *child = (PhyloNode *)(*it)->node;
+            computeAndStoreNodeHash(child, node, n_original);
+            
+            // Only include hashes from nodes with existing samples
+            if (hasExistingSamples(child, n_original)) {
+                child_hashes.push_back(child->subtree_hash);
             }
         }
-        total_missing_sample += num_missing_sample;
+        
+        // Sort child hashes to ensure order independence
+        std::sort(child_hashes.begin(), child_hashes.end(), 
+                  [](const pllTreeHash128& a, const pllTreeHash128& b) {
+                      return pllTreeHashLess(&a, &b);
+                  });
+        
+        node->subtree_hash = pllTreeHashComputeInternal(child_hashes.data(), child_hashes.size());
     }
-
-    if (check) {
-        node->setMissingNode(-1);
-    }
-    else {
-        node->setMissingNode(1);
-    }
-    return total_missing_sample;
 }
 
-bool IQTree::compareTree(IQTree *anotherTree) {
-    if (root->name != anotherTree->root->name)
-        return false;
-    return compareTree((PhyloNode *)root, NULL, anotherTree->root, NULL);
+void IQTree::transferHashesToPLL() {
+    if (!pllInst || !root) return;
+    
+    // Transfer hashes from IQTree nodes to PLL nodes
+    transferNodeHashToPLL((PhyloNode *)root, NULL);
 }
 
-bool IQTree::compareTree(PhyloNode *node1, PhyloNode *dad1, Node *node2, Node *dad2) {
-    bool check = true;
-    FOR_NEIGHBOR_IT(node1, dad1, it1) {
-        PhyloNode *child1 = (PhyloNode *)(*it1)->node;
-        if (!child1->checkMissingNode()) {
-            bool found = false;
-            FOR_NEIGHBOR_IT(node2, dad2, it2) {
-                Node *child2 = (*it2)->node;
-                if (child1->name == child2->name) {
-                    found = true;
-                    check &= compareTree(child1, node1, child2, node2);
-                    break;
-                }
-            }
-            if (!found) {
-                return false;
-            }
+void IQTree::transferNodeHashToPLL(PhyloNode *iqnode, PhyloNode *dad) {
+    if (!iqnode) return;
+    
+    // Find corresponding PLL node
+    nodeptr pll_node = findPLLNode(iqnode);
+    if (pll_node) {
+        // Transfer the 128-bit hash
+        pll_node->subtree_hash = iqnode->subtree_hash;
+    }
+    
+    // Recursively transfer for all children
+    FOR_NEIGHBOR_IT(iqnode, dad, it) {
+        transferNodeHashToPLL((PhyloNode *)(*it)->node, iqnode);
+    }
+}
+
+nodeptr IQTree::findPLLNode(PhyloNode *iqnode) {
+    if (!pllInst || !iqnode) return NULL;
+    
+    // Simple approach: match by node ID or name
+    // This assumes PLL nodes maintain correspondence with IQTree nodes
+    if (iqnode->isLeaf() && iqnode->name.length() > 0) {
+        // For leaf nodes, find by matching sequence names in alignment
+        // PLL nodes don't have names directly, so we match by ID
+        if (iqnode->id >= 1 && iqnode->id <= pllInst->mxtips) {
+            return pllInst->nodep[iqnode->id];
         }
-        else {
-            check &= compareTree(child1, node1, node2, dad2);
+    } else {
+        // For internal nodes, find by ID
+        for (int i = pllInst->mxtips + 1; i <= 2 * pllInst->mxtips - 2; i++) {
+            if (pllInst->nodep[i] && pllInst->nodep[i]->number == iqnode->id) {
+                return pllInst->nodep[i];
+            }
         }
     }
-    return check;
+    
+    return NULL;
 }

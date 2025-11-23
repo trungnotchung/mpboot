@@ -556,8 +556,8 @@ void parseArg(int argc, char *argv[], Params &params) {
 	params.num_missing_sequences = 0;
 	params.mutation_tree_file = NULL;
 	params.ppon = false;
+	params.pp_spr = false;
 	params.pp_verify_preserved_tree = false;
-	params.original_tree_file = NULL;
     verbose_mode = VB_MIN;
     params.tree_gen = NONE;
     params.user_file = NULL;
@@ -862,12 +862,6 @@ void parseArg(int argc, char *argv[], Params &params) {
 				params.ppon = true;
 				continue;
 			}
-			if (strcmp(argv[cnt], "-pp_origin") == 0)
-			{
-				cnt++;
-				params.original_tree_file = argv[cnt];
-				continue;
-			}
 			if (strcmp(argv[cnt], "-pp_n") == 0)
 			{
 				cnt++;
@@ -889,6 +883,10 @@ void parseArg(int argc, char *argv[], Params &params) {
 			if (strcmp(argv[cnt], "-pp_test_optimize") == 0)
 			{
 				params.pp_verify_preserved_tree = true;
+				continue;
+			}
+			if (strcmp(argv[cnt], "-pp_spr") == 0) {
+				params.pp_spr = true;
 				continue;
 			}
 			if (strcmp(argv[cnt], "-ho") == 0 || strcmp(argv[cnt], "-?") == 0) {
