@@ -59,7 +59,7 @@ public:
             @param sequence_type type of the sequence, either "BIN", "DNA", "AA", or NULL
             @param intype (OUT) input format of the file
      */
-    Alignment(char *filename, char *sequence_type, InputType &intype, int existing_sequence = INT_MAX);
+    Alignment(char *filename, char *sequence_type, InputType &intype, int existing_sequence = INT_MAX, int missing_sequence = INT_MAX);
 
     /**
             destructor
@@ -714,7 +714,7 @@ public:
 	 * It updates the alignment with new sequence data and mutation information.
 	 */
 	int readPartialVCF(ifstream &in, char *sequence_type, vector<int> &perm_col, 
-					int existing_sequence, int start_index, int num_column);
+					int existing_sequence, int missing_sequence, int start_index, int num_column);
 
 	/**
 	 * Reads and processes a complete VCF file.
@@ -729,7 +729,7 @@ public:
 	 * - Building patterns and updating the alignment
 	 * - Tracking mutations for both existing and missing sequences
 	 */
-	int readVCF(char *file_name, char *sequence_type, int existing_sequence);
+	int readVCF(char *file_name, char *sequence_type, int existing_sequence, int missing_sequence);
 protected:
 
 

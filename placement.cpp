@@ -51,7 +51,7 @@ int readInitialAlignment(ifstream &in_file_stream, char *out_file_name, int num_
 
 int readVCFFile(IQTree *tree, Alignment*& alignment, Params &params) {
 	if (params.num_existing_sequences + params.num_missing_sequences <= MAX_SEQUENCE) {
-		alignment = new Alignment(params.aln_file, params.sequence_type, params.intype, params.num_existing_sequences);
+		alignment = new Alignment(params.aln_file, params.sequence_type, params.intype, params.num_existing_sequences, params.num_missing_sequences);
 		tree->setAlignment(alignment);
 		tree->aln = alignment;
 		vector<int> rotatedColumnPermutation = alignment->findRotatedColumnPermutation();
@@ -78,7 +78,7 @@ int readVCFFile(IQTree *tree, Alignment*& alignment, Params &params) {
 
 	while (true) {
 		int numProcessedColumn = (alignment)->readPartialVCF(in, params.sequence_type, rotatedColumnPermutation, 
-			params.num_existing_sequences, totalColumn, BATCH_SIZE);
+			params.num_existing_sequences, params.num_missing_sequences, totalColumn, BATCH_SIZE);
 		if (numProcessedColumn == 0)
 			break;
 		tree->clearAllPartialLH();
