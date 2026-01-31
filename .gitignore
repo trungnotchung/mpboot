@@ -10,3 +10,4 @@ pll_test/
 workspace.code-workspace
 .vscode
 build/
+zlib-1.3.1/
