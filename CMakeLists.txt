@@ -402,6 +402,13 @@ sprparsimony.cpp
 test.cpp
 mutation.cpp
 placement.cpp
+sproptimize.cpp
+onehot_encoding.cpp
+spr_mutation_ops.cpp
+spr_delta_exact.cpp
+test_spr_unit.cpp
+test_spr_delta.cpp
+fitch.cpp
 )
 
 ##################################################################
@@ -430,10 +437,11 @@ if (IQTREE_FLAGS MATCHES "omp")
 	endif()
 endif()
 
-target_link_libraries(mpboot pll ncl whtest zlibstatic sprng vectorclass model ${PLATFORM_LIB} ${THREAD_LIB})	
+target_link_libraries(mpboot pll ncl whtest zlibstatic sprng vectorclass model ${PLATFORM_LIB} ${THREAD_LIB})
+
 
 ##################################################################
-# setup the executable name 
+# setup the executable name
 ##################################################################
 set_target_properties(mpboot PROPERTIES OUTPUT_NAME "mpboot${EXE_SUFFIX}")
 

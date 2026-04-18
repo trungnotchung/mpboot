@@ -246,6 +246,9 @@ struct LeafFreq {
  */
 void precomputeFitchInfo();
 
+// Forward declarations
+class SPROptimizer;
+
 /**
 Phylogenetic Tree class
 
@@ -257,6 +260,7 @@ class PhyloTree : public MTree, public Optimization {
 	friend class PhyloSuperTreePlen;
 	friend class RateGamma;
 	friend class RateKategory;
+	friend class SPROptimizer;  // Needs access to getBitsBlockSize() for exact scoring
 
 public:
     /**
@@ -352,6 +356,19 @@ public:
      * @return The partial parsimony score for the branch
      */
     int computePartialParsimonyMutation(PhyloNeighbor *dad_branch, PhyloNode *dad);
+
+    /**
+     * Assign DFS indices to all nodes in the tree
+     * Used for ordering nodes during mutation state reassignment after SPR moves
+     * Nodes are indexed in depth-first order, starting from root
+     */
+    void assignDFSIndices();
+
+    /**
+     * Initialize one-hot encoded fields for all mutations
+     * Should be called after loading mutations from VCF
+     */
+    void initializeMutationOneHotFields();
 
     /**
      * Initializes node data for placing new samples
@@ -614,6 +631,7 @@ public:
      */
     virtual void initializeAllPartialPars(int &index, PhyloNode *node = NULL, PhyloNode *dad = NULL);
 
+    /**
     /**
             compute the tree parsimony score
             @return parsimony score of the tree

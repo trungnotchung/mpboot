@@ -21,6 +21,7 @@
 #include "phylosupertree.h"
 #include "parstree.h"
 #include "sprparsimony.h"
+#include "nucleotide_utils.h"
 //const static int BINARY_SCALE = floor(log2(1/SCALING_THRESHOLD));
 //const static double LOG_BINARY_SCALE = -(log(2) * BINARY_SCALE);
 
@@ -5397,6 +5398,69 @@ int PhyloTree::computeParsimonyScoreMutation() {
 	int parsimony_score = computeParsimonyBranchMutation((PhyloNeighbor *)root->neighbors[0], (PhyloNode *)root);
 	parsimony_score += root_mutations.size();
 	return parsimony_score;
+}
+
+void PhyloTree::assignDFSIndices() {
+	if (!root) return;
+
+	int index = 0;
+
+	// Recursive DFS traversal to assign indices
+	std::function<void(PhyloNode*, PhyloNode*)> dfs_assign =
+		[&](PhyloNode* node, PhyloNode* dad) {
+		node->dfs_index = index++;
+
+		// Visit all neighbors except dad
+		FOR_NEIGHBOR_IT(node, dad, it) {
+			PhyloNode* child = (PhyloNode*)((*it)->node);
+			dfs_assign(child, node);
+		}
+	};
+
+	PhyloNode* root_node = (PhyloNode*)root;
+	dfs_assign(root_node, nullptr);
+}
+
+void PhyloTree::initializeMutationOneHotFields() {
+	if (!root) return;
+
+	std::queue<PhyloNode*> node_queue;
+	std::set<PhyloNode*> visited;
+	node_queue.push((PhyloNode*)root);
+
+	while (!node_queue.empty()) {
+		PhyloNode* node = node_queue.front();
+		node_queue.pop();
+
+		if (visited.count(node)) continue;
+		visited.insert(node);
+
+		FOR_NEIGHBOR_IT(node, nullptr, it) {
+			PhyloNeighbor* edge = (PhyloNeighbor*)(*it);
+			PhyloNode* neighbor = (PhyloNode*)(edge->node);
+
+			for (auto& mut : edge->mutations) {
+				// Handle par_nuc/mut_nuc that may be stored as one-hot values or characters
+				if (mut.par_nuc >= 1 && mut.par_nuc <= 15 && (mut.par_nuc & (mut.par_nuc - 1)) == 0) {
+					mut.par_one_hot = (nuc_one_hot)mut.par_nuc;
+				} else {
+					mut.par_one_hot = char_to_one_hot(mut.par_nuc);
+				}
+
+				if (mut.mut_nuc >= 1 && mut.mut_nuc <= 15 && (mut.mut_nuc & (mut.mut_nuc - 1)) == 0) {
+					mut.mut_one_hot = (nuc_one_hot)mut.mut_nuc;
+				} else {
+					mut.mut_one_hot = char_to_one_hot(mut.mut_nuc);
+				}
+
+				mut.all_major_allele = mut.mut_one_hot;
+			}
+
+			if (!visited.count(neighbor)) {
+				node_queue.push(neighbor);
+			}
+		}
+	}
 }
 
 void PhyloTree::initNodeDataPlaceNewSample() {

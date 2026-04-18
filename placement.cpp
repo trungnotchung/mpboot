@@ -7,6 +7,11 @@
 #include "iqtree.h"
 #include "mutation.h"
 #include "placement.h"
+#include "sproptimize.h"
+extern int runSPRUnitTests(PhyloTree* tree);
+extern int runSPRDeltaTests(PhyloTree* tree);
+#include <queue>
+#include <set>
 
 const int VCF_HEADER_LINES = 12;  // Number of header lines in VCF file
 const int BATCH_SIZE = 8;         // Number of columns to process in each batch
@@ -50,8 +55,10 @@ int readInitialAlignment(ifstream &in_file_stream, char *out_file_name, int num_
 }
 
 int readVCFFile(IQTree *tree, Alignment*& alignment, Params &params) {
+	char* vcf_file = params.aln_file ? params.aln_file : params.user_file;
+
 	if (params.num_existing_sequences + params.num_missing_sequences <= MAX_SEQUENCE) {
-		alignment = new Alignment(params.aln_file, params.sequence_type, params.intype, params.num_existing_sequences);
+		alignment = new Alignment(vcf_file, params.sequence_type, params.intype, params.num_existing_sequences);
 		tree->setAlignment(alignment);
 		tree->aln = alignment;
 		vector<int> rotatedColumnPermutation = alignment->findRotatedColumnPermutation();
@@ -61,7 +68,7 @@ int readVCFFile(IQTree *tree, Alignment*& alignment, Params &params) {
 
 	ifstream in;
 	in.exceptions(ios::failbit | ios::badbit);
-	in.open(params.aln_file);
+	in.open(vcf_file);
 	string line;
 	in.exceptions(ios::badbit);
 
@@ -98,12 +105,13 @@ void placeNewSamplesOntoExistingTree(Params &params) {
 	bool is_rooted = false;
 
 	tree->readTree(params.mutation_tree_file, is_rooted);
+
 	int sequence_length = readVCFFile(tree, alignment, params) + 1;
-	// Init new tree's memory
+
 	tree->allocateMutationMemory(sequence_length);
-	// free memory
 	delete[] tree->root_states;
 	tree->add_row = false;
+
 	cout << "Tree parsimony after init mutations: " << tree->computeParsimonyScoreMutation() << '\n';
 
 	cout << "\n========== Starting placement core ==========\n";
@@ -135,6 +143,43 @@ void placeNewSamplesOntoExistingTree(Params &params) {
 	cout << "Time: " << fixed << setprecision(3) << (double)(getCPUTime() - start_time) << " seconds\n";
 	cout << "Memory: " << getMemory() << " KB\n";
 	cout << "New tree's parsimony score computed by mutation: " << tree->computeParsimonyScoreMutation() << '\n';
+
+	alignment->addToAlignmentNewSequences(alignment->missing_seq_names, alignment->missing_sequences);
+	tree->deleteAllPartialLh();
+
+	int placement_score = tree->computeParsimony();
+	cout << "Placement parsimony score (Fitch): " << placement_score << "\n";
+
+	if (params.test_delta) {
+		cout << "\n========== Running SPRDeltaExact Debug Tests ==========\n";
+		tree->initializeAllPartialPars();
+		int failures = runSPRDeltaTests(tree);
+		if (failures > 0) {
+			cerr << "\n[ERROR] " << failures << " delta test(s) FAILED" << endl;
+		}
+		cout << "========== SPRDeltaExact Debug Tests Complete ==========\n\n";
+	} else if (params.spr_test) {
+		cout << "\n========== Running SPR Unit Tests ==========\n";
+		tree->initializeAllPartialPars();
+		int failures = runSPRUnitTests(tree);
+		if (failures > 0) {
+			cerr << "\n[ERROR] " << failures << " test(s) FAILED" << endl;
+		}
+		cout << "========== SPR Unit Tests Complete ==========\n\n";
+	} else if (params.spr_optimize) {
+		cout << "\n========== Starting post-placement SPR optimization ==========\n";
+		auto spr_start_time = getCPUTime();
+
+		SPROptimizer optimizer(tree);
+		int best_score = optimizer.optimizeTree(params.spr_max_passes);
+
+		cout << "SPR optimization time: " << fixed << setprecision(3)
+		     << (double)(getCPUTime() - spr_start_time) << " seconds\n";
+		cout << "Final parsimony score after SPR: " << best_score << '\n';
+		tree->deleteAllPartialLh();
+		cout << "Final parsimony score computed by fitch: " << tree->computeParsimony() << '\n';
+		cout << "========== Finished SPR optimization ==========\n\n";
+	}
 
 	delete alignment;
 	alignment = NULL;

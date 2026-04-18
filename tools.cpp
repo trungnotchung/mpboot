@@ -793,6 +793,13 @@ void parseArg(int argc, char *argv[], Params &params) {
     params.spr_parsimony = true;// Diep: Revert for UFBoot-MP release
     params.spr_mintrav = 1; // same as PLL
     params.spr_maxtrav = 6; // PLL default is 20
+    params.spr_optimize = false; // Post-placement SPR optimization (disabled by default)
+    params.spr_test = false;     // SPR unit tests (disabled by default)
+    params.test_delta = false;   // SPRDeltaExact debug tests (disabled by default)
+    params.spr_max_iterations = 1000; // Maximum optimization iterations
+    params.spr_min_improvement = 0.0005; // Convergence threshold: 0.05%
+    params.spr_drift_iterations = 0; // Drift iterations (0 = disabled)
+    params.spr_max_passes = 1;       // Default: 1 pass over all radii
     params.test_site_pars = false;
     params.auto_vectorize = false;
     params.sort_alignment = true;
@@ -2434,6 +2441,54 @@ void parseArg(int argc, char *argv[], Params &params) {
                     throw "Use " + string(argv[cnt]) + " <maximal SPR radius>";
             	params.spr_maxtrav = convert_int(argv[cnt]);
             	params.sprDist = params.spr_maxtrav; // Diep: hopefully this speed the pllMakeParsimonyTreeFast...
+            	continue;
+            }
+			if(strcmp(argv[cnt], "-spr_optimize") == 0){
+            	params.spr_optimize = true;
+            	continue;
+            }
+			if(strcmp(argv[cnt], "-spr_test") == 0){
+            	params.spr_test = true;
+            	params.spr_optimize = true; // tests need placement to run first
+            	continue;
+            }
+			if(strcmp(argv[cnt], "-test_delta") == 0){
+            	params.test_delta = true;
+            	params.spr_optimize = true; // tests need placement to run first
+            	continue;
+            }
+		if(strcmp(argv[cnt], "-drift_iterations") == 0){
+            	cnt++;
+            	if (cnt >= argc) throw "Use -drift_iterations <number>";
+            	params.spr_drift_iterations = convert_int(argv[cnt]);
+            	continue;
+            }
+			if(strcmp(argv[cnt], "-spr_max_iter") == 0){
+            	cnt++;
+                if (cnt >= argc)
+                    throw "Use -spr_max_iter <max iterations>";
+            	params.spr_max_iterations = convert_int(argv[cnt]);
+            	continue;
+            }
+			if(strcmp(argv[cnt], "-spr_min_improve") == 0){
+            	cnt++;
+                if (cnt >= argc)
+                    throw "Use -spr_min_improve <min improvement threshold>";
+            	params.spr_min_improvement = convert_double(argv[cnt]);
+            	continue;
+            }
+			if(strcmp(argv[cnt], "-spr_drift_iter") == 0){
+            	cnt++;
+                if (cnt >= argc)
+                    throw "Use -spr_drift_iter <drift iterations>";
+            	params.spr_drift_iterations = convert_int(argv[cnt]);
+            	continue;
+            }
+			if(strcmp(argv[cnt], "-spr_max_passes") == 0){
+            	cnt++;
+                if (cnt >= argc)
+                    throw "Use -spr_max_passes <number>";
+            	params.spr_max_passes = convert_int(argv[cnt]);
             	continue;
             }
 			if(strcmp(argv[cnt], "-sitepars") == 0){

@@ -1554,6 +1554,17 @@ struct Params {
     int spr_maxtrav;
 
     /*
+     * Post-placement SPR optimization parameters
+     */
+    bool spr_optimize;              // Enable post-placement SPR optimization
+    bool spr_test;                  // Run SPR unit tests instead of optimization
+    bool test_delta;                // Run SPRDeltaExact debug tests
+    int spr_max_iterations;         // Maximum optimization iterations
+    float spr_min_improvement;      // Convergence threshold (relative)
+    int spr_drift_iterations;       // Drift iterations for escaping local optima
+    int spr_max_passes;             // Max full passes over all radii (default 1)
+
+    /*
      * Diep: option for comparing PLL site parsimony and IQTree
      */
     bool test_site_pars;
