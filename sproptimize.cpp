@@ -384,7 +384,7 @@ static void orientTreeToRoot(PhyloTree* tree, int max_id) {
     q.push({root, nullptr});
 
     while (!q.empty()) {
-        auto [node, parent] = q.front(); q.pop();
+        PhyloNode* node = (PhyloNode*)q.front().first; PhyloNode* parent = (PhyloNode*)q.front().second; q.pop();
         if (visited[node->id]) continue;
         visited[node->id] = true;
 
@@ -483,7 +483,7 @@ static bool isNeighborhoodDirty(PhyloNode* node, int radius, const vector<bool>&
 
     bool found = false;
     while (!q.empty() && !found) {
-        auto [cur_node, depth] = q.front(); q.pop();
+        PhyloNode* cur_node = q.front().first; int depth = q.front().second; q.pop();
         if (dirty[cur_node->id]) { found = true; break; }
         if (depth < radius) {
             FOR_NEIGHBOR_IT(cur_node, nullptr, it) {

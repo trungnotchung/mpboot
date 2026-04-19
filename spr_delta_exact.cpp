@@ -31,7 +31,7 @@ void SPRDeltaExact::precomputeDepths(PhyloTree* tree) {
     q.push({(PhyloNode*)tree->root, 0});
 
     while (!q.empty()) {
-        auto [node, depth] = q.front(); q.pop();
+        PhyloNode* node = q.front().first; int depth = q.front().second; q.pop();
         if (node->id < 0) continue;
 
         // Grow vector if needed
