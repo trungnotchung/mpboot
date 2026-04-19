@@ -171,7 +171,7 @@ void placeNewSamplesOntoExistingTree(Params &params) {
 		auto spr_start_time = getCPUTime();
 
 		SPROptimizer optimizer(tree);
-		int best_score = optimizer.optimizeTree(params.spr_max_passes);
+		int best_score = optimizer.optimizeTree(params.spr_max_passes, params.spr_max_radius);
 
 		cout << "SPR optimization time: " << fixed << setprecision(3)
 		     << (double)(getCPUTime() - spr_start_time) << " seconds\n";

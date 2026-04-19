@@ -114,14 +114,14 @@ void Fitch::computeFitchDiffs() {
     fitch_diffs[getIdx(root)].clear();
 
     {
-        int rn_idx = getIdx(root_neighbor);
-        int r_idx = getIdx(root);
-        const nuc_one_hot* rn_arr = majorAt(rn_idx);
-        const nuc_one_hot* r_arr = majorAt(r_idx);
-        auto& diffs = fitch_diffs[rn_idx];
+        int root_nei_idx = getIdx(root_neighbor);
+        int root_idx = getIdx(root);
+        const nuc_one_hot* root_nei_arr = majorAt(root_nei_idx);
+        const nuc_one_hot* root_arr = majorAt(root_idx);
+        auto& diffs = fitch_diffs[root_nei_idx];
         diffs.clear();
         for (int p = 0; p < nptn; p++) {
-            if (rn_arr[p] != r_arr[p]) diffs.push_back(p);
+            if (root_nei_arr[p] != root_arr[p]) diffs.push_back(p);
         }
     }
 
@@ -519,11 +519,11 @@ int Fitch::recomputeWithDiffs() {
 
     int root_edge_score = 0;
     int root_idx = getIdx(root);
-    int rn_idx = getIdx(root_neighbor);
+    int root_nei_idx = getIdx(root_neighbor);
     const nuc_one_hot* root_major_ptr = majorAt(root_idx);
-    const nuc_one_hot* rn_major_ptr = majorAt(rn_idx);
+    const nuc_one_hot* root_nei_major_ptr = majorAt(root_nei_idx);
     for (int ptn = 0; ptn < nptn; ptn++) {
-        if ((root_major_ptr[ptn] & rn_major_ptr[ptn]) == 0) {
+        if ((root_major_ptr[ptn] & root_nei_major_ptr[ptn]) == 0) {
             root_edge_score += ptn_freq[ptn];
         }
     }

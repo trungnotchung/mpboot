@@ -1563,6 +1563,7 @@ struct Params {
     float spr_min_improvement;      // Convergence threshold (relative)
     int spr_drift_iterations;       // Drift iterations for escaping local optima
     int spr_max_passes;             // Max full passes over all radii (default 1)
+    int spr_max_radius;             // Max SPR search radius (default 32, 0=unbounded)
 
     /*
      * Diep: option for comparing PLL site parsimony and IQTree

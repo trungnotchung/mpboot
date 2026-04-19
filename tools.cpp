@@ -800,6 +800,7 @@ void parseArg(int argc, char *argv[], Params &params) {
     params.spr_min_improvement = 0.0005; // Convergence threshold: 0.05%
     params.spr_drift_iterations = 0; // Drift iterations (0 = disabled)
     params.spr_max_passes = 1;       // Default: 1 pass over all radii
+    params.spr_max_radius = 32;      // Default: max radius 32 (0=unbounded)
     params.test_site_pars = false;
     params.auto_vectorize = false;
     params.sort_alignment = true;
@@ -2489,6 +2490,13 @@ void parseArg(int argc, char *argv[], Params &params) {
                 if (cnt >= argc)
                     throw "Use -spr_max_passes <number>";
             	params.spr_max_passes = convert_int(argv[cnt]);
+            	continue;
+            }
+			if(strcmp(argv[cnt], "-spr_max_radius") == 0){
+            	cnt++;
+                if (cnt >= argc)
+                    throw "Use -spr_max_radius <number> (0=unbounded)";
+            	params.spr_max_radius = convert_int(argv[cnt]);
             	continue;
             }
 			if(strcmp(argv[cnt], "-sitepars") == 0){

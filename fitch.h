@@ -26,6 +26,9 @@ public:
     // Recompute bottom-up Fitch states, score, and diffs (no topDown/mutations)
     int recomputeWithDiffs();
 
+    // Update fitch diffs only (must have valid node_major from prior recompute)
+    void updateFitchDiffs() { computeFitchDiffs(); }
+
     int countMutations() const;
 
     // Access: node_major[getIdx(node) * nptn + pattern]
