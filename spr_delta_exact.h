@@ -10,7 +10,7 @@ class Fitch;
 class SPRDeltaExact {
 public:
     // Set Fitch pointer and current score for binary node fallback.
-    static void setCustomFitch(Fitch* cf, int current_score);
+    static void setCustomFitch(Fitch* fitch, int current_score);
 
     // Compute exact parsimony delta for SPR move.
     static int calculateParsimonyDelta(PhyloNode* src, PhyloNode* src_parent,

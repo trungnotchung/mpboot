@@ -1,118 +1,76 @@
 #include "spr_delta_exact.h"
 #include "spr_mutation_ops.h"
+#include "spr_utils.h"
 #include "fitch.h"
 #include <algorithm>
 #include <map>
 #include <queue>
-#include <set>
 
 // Static state for binary fallback
-static Fitch* s_cf = nullptr;
+static Fitch* s_fitch = nullptr;
 static int s_current_score = 0;
 
 // Precomputed depth cache for O(1) depth lookup in findLCA.
-// Populated by precomputeDepths(), keyed by node pointer.
-static std::map<PhyloNode*, int> s_node_depth;
+static std::vector<int> s_node_depth;
 
-void SPRDeltaExact::setCustomFitch(Fitch* cf, int current_score) {
-    s_cf = cf;
+void SPRDeltaExact::setCustomFitch(Fitch* fitch, int current_score) {
+    s_fitch = fitch;
     s_current_score = current_score;
 }
 
+// Single-pass BFS: finds max_id and assigns depths simultaneously.
 void SPRDeltaExact::precomputeDepths(PhyloTree* tree) {
     s_node_depth.clear();
     if (!tree || !tree->root) return;
-    // BFS from root, assigning depth
+
+    // Start with a reasonable initial size
+    int initial_size = std::max(1, tree->nodeNum * 2);
+    s_node_depth.assign(initial_size, -1);
+
     std::queue<std::pair<PhyloNode*, int>> q;
     q.push({(PhyloNode*)tree->root, 0});
-    std::set<PhyloNode*> visited;
+
     while (!q.empty()) {
-        PhyloNode* node = q.front().first;
-        int depth = q.front().second;
-        q.pop();
-        if (visited.count(node)) continue;
-        visited.insert(node);
-        s_node_depth[node] = depth;
+        auto [node, depth] = q.front(); q.pop();
+        if (node->id < 0) continue;
+
+        // Grow vector if needed
+        if (node->id >= (int)s_node_depth.size())
+            s_node_depth.resize(node->id + 1, -1);
+
+        // Skip already visited
+        if (s_node_depth[node->id] >= 0) continue;
+        s_node_depth[node->id] = depth;
+
         FOR_NEIGHBOR_IT(node, nullptr, it) {
-            PhyloNode* nb = (PhyloNode*)(*it)->node;
-            if (!visited.count(nb)) q.push({nb, depth + 1});
+            PhyloNode* neighbor = (PhyloNode*)(*it)->node;
+            if (neighbor->id >= 0) {
+                bool visited = (neighbor->id < (int)s_node_depth.size() &&
+                               s_node_depth[neighbor->id] >= 0);
+                if (!visited) q.push({neighbor, depth + 1});
+            }
         }
     }
 }
 
-static inline nuc_one_hot fitchMerge(nuc_one_hot a, nuc_one_hot b) {
-    nuc_one_hot inter = a & b;
-    return inter ? inter : (a | b);
-}
-
-static inline int penaltyDelta(nuc_one_hot old_child, nuc_one_hot new_child,
-                                nuc_one_hot other, nuc_one_hot& new_node_out) {
-    int old_pen = (old_child & other) ? 0 : 1;
-    nuc_one_hot inter = new_child & other;
-    new_node_out = inter ? inter : (new_child | other);
-    int new_pen = inter ? 0 : 1;
-    return new_pen - old_pen;
-}
-
-static inline int rootEdgeDelta(nuc_one_hot root_f, nuc_one_hot old_rn, nuc_one_hot new_rn) {
-    int old_re = (root_f & old_rn) ? 0 : 1;
-    int new_re = (root_f & new_rn) ? 0 : 1;
-    return new_re - old_re;
-}
-
-static PhyloNode* findOtherChild(PhyloNode* node, PhyloNode* parent,
-                                  PhyloNode* known_child) {
-    if (!node) return nullptr;
-    FOR_NEIGHBOR_IT(node, parent, nit) {
-        PhyloNode* c = (PhyloNode*)(*nit)->node;
-        if (c != known_child) return c;
-    }
-    return nullptr;
-}
-
-struct SparsePathNode {
-    PhyloNode* node;
-    const nuc_one_hot* other_arr;   // sibling (unchanged) Fitch array
-    const nuc_one_hot* node_arr;    // this node's current Fitch array
-};
-
-static std::vector<SparsePathNode> buildPath(PhyloNode* prev, PhyloNode* cur,
-                                               PhyloNode* stop_node, Fitch* cf) {
-    std::vector<SparsePathNode> path;
+static std::vector<PathStep> buildPath(PhyloNode* prev, PhyloNode* cur,
+                                        PhyloNode* stop_node, Fitch* fitch) {
+    std::vector<PathStep> path;
     while (cur && cur != stop_node) {
-        PhyloNode* par = SPRMutationOps::getParent(cur);
-        PhyloNode* other = findOtherChild(cur, par, prev);
-        const nuc_one_hot* other_arr = other
-            ? cf->getMajorArrayForNode(other)
-            : cf->getMajorArrayForNode(cur);  // root leaf: use own state
-        path.push_back({cur, other_arr, cf->getMajorArrayForNode(cur)});
+        PhyloNode* cur_parent = SPRMutationOps::getParent(cur);
+        PhyloNode* other = findOtherChild(cur, cur_parent, prev);
+        const nuc_one_hot* other_states = other
+            ? fitch->getMajorArrayForNode(other)
+            : fitch->getMajorArrayForNode(cur);  // root leaf: use own state
+        path.push_back({cur, other_states, fitch->getMajorArrayForNode(cur)});
         prev = cur;
-        cur = par;
+        cur = cur_parent;
     }
     return path;
 }
 
-static void propagatePath(const std::vector<SparsePathNode>& path, int p, int freq,
-                           nuc_one_hot& old_f, nuc_one_hot& new_f, int& score) {
-    for (size_t i = 0; i < path.size(); i++) {
-        if (old_f == new_f) break;
-        const SparsePathNode& pn = path[i];
-        nuc_one_hot other_f = pn.other_arr[p];
-        nuc_one_hot new_node_f;
-        score += penaltyDelta(old_f, new_f, other_f, new_node_f) * freq;
-        old_f = pn.node_arr[p];
-        new_f = new_node_f;
-    }
-}
-
-static inline void addDiffs(Fitch* cf, PhyloNode* node, std::vector<int>& out) {
-    const std::vector<int>* d = cf->getFitchDiffs(node);
-    if (d && !d->empty()) out.insert(out.end(), d->begin(), d->end());
-}
-
-static inline void finalizeDiffs(std::vector<int>& v) {
-    std::sort(v.begin(), v.end());
-    v.erase(std::unique(v.begin(), v.end()), v.end());
+static inline void collectDiffs(Fitch* fitch, PhyloNode* node, std::vector<int>& out) {
+    mergeDiffsSorted(out, fitch->getFitchDiffs(node));
 }
 
 static long long s_total_M = 0, s_total_P = 0;
@@ -121,231 +79,221 @@ static int s_max_M = 0;
 
 static int sparseBinaryDelta(PhyloNode* src, PhyloNode* src_parent,
                               PhyloNode* dst, PhyloNode* dst_parent) {
-    if (!s_cf) return 0;
-    Fitch* cf = s_cf;
+    if (!s_fitch) return 0;
+    Fitch* fitch = s_fitch;
 
-    PhyloNode* gp  = SPRMutationOps::getParent(src_parent);
-    PhyloNode* sib = findOtherChild(src_parent, gp, src);
-    if (!sib || !gp) return 0;
+    PhyloNode* grandparent = SPRMutationOps::getParent(src_parent);
+    PhyloNode* sibling = findOtherChild(src_parent, grandparent, src);
+    if (!sibling || !grandparent) return 0;
 
     PhyloNode* lca = SPRDeltaExact::findLCA(src_parent, dst, nullptr);
     if (!lca) return 0;
 
-    const nuc_one_hot* src_arr = cf->getMajorArrayForNode(src);
-    const nuc_one_hot* sib_arr = cf->getMajorArrayForNode(sib);
-    const nuc_one_hot* sp_arr  = cf->getMajorArrayForNode(src_parent);
-    const nuc_one_hot* dst_arr = cf->getMajorArrayForNode(dst);
+    const nuc_one_hot* src_states = fitch->getMajorArrayForNode(src);
+    const nuc_one_hot* sibling_st = fitch->getMajorArrayForNode(sibling);
+    const nuc_one_hot* sp_states = fitch->getMajorArrayForNode(src_parent);
+    const nuc_one_hot* dst_states = fitch->getMajorArrayForNode(dst);
 
     int score = 0;
-    int nptn = cf->getNumPatterns();
+    int num_patterns = fitch->getNumPatterns();
     int local_M = 0; // for stats
 
     if (lca == src_parent) {
-        // ========== CASE A: dst in sib's subtree ==========
-        // sp bypassed (sib→gp), sp reinserted at dp with children {src, dst}.
-        // Chain: dp → ... → sib → gp → above.
+        // ========== CASE A: dst in sibling's subtree ==========
+        std::vector<PathStep> path_to_sp = buildPath(dst, dst_parent, src_parent, fitch);
 
-        std::vector<SparsePathNode> dp_to_sib = buildPath(dst, dst_parent, src_parent, cf);
+        PhyloNode* gp_sibling = findOtherChild(grandparent, SPRMutationOps::getParent(grandparent), src_parent);
+        const nuc_one_hot* gp_sibling_states = gp_sibling ? fitch->getMajorArrayForNode(gp_sibling) : nullptr;
+        const nuc_one_hot* gp_states = fitch->getMajorArrayForNode(grandparent);
 
-        PhyloNode* gp_other = findOtherChild(gp, SPRMutationOps::getParent(gp), src_parent);
-        const nuc_one_hot* gp_other_arr = gp_other ? cf->getMajorArrayForNode(gp_other) : nullptr;
-        const nuc_one_hot* gp_arr = cf->getMajorArrayForNode(gp);
-
-        std::vector<SparsePathNode> above_gp = buildPath(
-            gp, SPRMutationOps::getParent(gp), nullptr, cf);
+        std::vector<PathStep> path_above_gp = buildPath(
+            grandparent, SPRMutationOps::getParent(grandparent), nullptr, fitch);
 
         // Collect O(M) affected patterns
         std::vector<int> affected;
-        addDiffs(cf, src, affected);
-        addDiffs(cf, sib, affected);
-        addDiffs(cf, src_parent, affected);
-        addDiffs(cf, dst, affected);
-        for (const auto& pn : dp_to_sib) addDiffs(cf, pn.node, affected);
-        finalizeDiffs(affected);
+        collectDiffs(fitch, src, affected);
+        collectDiffs(fitch, sibling, affected);
+        collectDiffs(fitch, src_parent, affected);
+        collectDiffs(fitch, dst, affected);
+        for (const auto& step : path_to_sp) collectDiffs(fitch, step.node, affected);
         local_M = (int)affected.size();
 
-        for (int p : affected) {
-            int freq = cf->getPatternFreq(p);
-            nuc_one_hot src_f = src_arr[p], sib_f = sib_arr[p];
-            nuc_one_hot dst_f = dst_arr[p],  sp_f = sp_arr[p];
+        for (int ptn : affected) {
+            int freq = fitch->getPatternFreq(ptn);
+            nuc_one_hot src_fitch = src_states[ptn], sibling_fitch = sibling_st[ptn];
+            nuc_one_hot dst_fitch = dst_states[ptn], sp_fitch = sp_states[ptn];
 
-            // 1. sp penalty: old !(src∩sib) → new !(src∩dst)
-            score += (((src_f & dst_f) ? 0 : 1) - ((src_f & sib_f) ? 0 : 1)) * freq;
+            // 1. src_parent penalty change
+            score += (((src_fitch & dst_fitch) ? 0 : 1) - ((src_fitch & sibling_fitch) ? 0 : 1)) * freq;
 
-            // 2. Propagate dp→sib: child changed from dst_f to sp_new_f
-            nuc_one_hot old_f = dst_f;
-            nuc_one_hot new_f = fitchMerge(src_f, dst_f);
-            propagatePath(dp_to_sib, p, freq, old_f, new_f, score);
+            // 2. Propagate dst_parent → sibling
+            nuc_one_hot old_fitch = dst_fitch;
+            nuc_one_hot new_fitch = fitchMerge(src_fitch, dst_fitch);
+            propagatePath(path_to_sp, ptn, freq, old_fitch, new_fitch, score);
 
-            // After propagation, new_f = sib's new Fitch (if changed)
-            nuc_one_hot new_sib_f = (!dp_to_sib.empty() && old_f != new_f) ? new_f : sib_f;
+            nuc_one_hot new_sibling_fitch = (!path_to_sp.empty() && old_fitch != new_fitch)
+                ? new_fitch : sibling_fitch;
 
-            // 3. At gp: child changed from sp_f to new_sib_f
-            if (gp->isLeaf()) {
-                // Root edge: root—sp → root—sib
-                score += rootEdgeDelta(gp_arr[p], sp_f, new_sib_f) * freq;
+            // 3. At grandparent
+            if (grandparent->isLeaf()) {
+                score += rootEdgeDelta(gp_states[ptn], sp_fitch, new_sibling_fitch) * freq;
             } else {
-                nuc_one_hot gp_other_f = gp_other_arr ? gp_other_arr[p] : 0xF;
-                nuc_one_hot new_gp_f;
-                score += penaltyDelta(sp_f, new_sib_f, gp_other_f, new_gp_f) * freq;
+                nuc_one_hot gp_sibling_fitch = gp_sibling_states ? gp_sibling_states[ptn] : 0xF;
+                nuc_one_hot new_gp_fitch;
+                score += penaltyDelta(sp_fitch, new_sibling_fitch, gp_sibling_fitch, new_gp_fitch) * freq;
 
-                if (new_gp_f != gp_arr[p]) {
-                    nuc_one_hot ao = gp_arr[p], an = new_gp_f;
-                    propagatePath(above_gp, p, freq, ao, an, score);
+                if (new_gp_fitch != gp_states[ptn]) {
+                    nuc_one_hot old_prop = gp_states[ptn], new_prop = new_gp_fitch;
+                    propagatePath(path_above_gp, ptn, freq, old_prop, new_prop, score);
                 }
             }
         }
 
     } else if (dst == lca) {
-        // ========== CASE B1: sp_new inserted on lca—src_branch edge ==========
-        // src-side: sp_f→sib_f propagates gp→...→src_branch_at_lca
-        // sp_new sits between lca and src_branch, children = {src, updated_src_branch}
-        // At lca: child changed from src_branch to sp_new
-
-        std::vector<SparsePathNode> src_path = buildPath(src_parent, gp, lca, cf);
+        // ========== CASE B1: dst == lca ==========
+        std::vector<PathStep> src_path = buildPath(src_parent, grandparent, lca, fitch);
         PhyloNode* src_branch = src_path.empty() ? src_parent : src_path.back().node;
-        const nuc_one_hot* src_branch_arr = cf->getMajorArrayForNode(src_branch);
+        const nuc_one_hot* src_branch_states = fitch->getMajorArrayForNode(src_branch);
 
-        PhyloNode* lca_parent    = SPRMutationOps::getParent(lca);
-        PhyloNode* lca_other     = findOtherChild(lca, lca_parent, src_branch);
-        const nuc_one_hot* lca_other_arr = lca_other ? cf->getMajorArrayForNode(lca_other) : nullptr;
-        const nuc_one_hot* lca_arr = cf->getMajorArrayForNode(lca);
+        PhyloNode* lca_parent = SPRMutationOps::getParent(lca);
+        PhyloNode* lca_sibling = findOtherChild(lca, lca_parent, src_branch);
+        const nuc_one_hot* lca_sibling_states = lca_sibling ? fitch->getMajorArrayForNode(lca_sibling) : nullptr;
+        const nuc_one_hot* lca_states = fitch->getMajorArrayForNode(lca);
 
         // parent(lca) info — for propagation above lca
-        PhyloNode* plca_other = lca_parent ? findOtherChild(lca_parent,
+        PhyloNode* lca_parent_sibling = lca_parent ? findOtherChild(lca_parent,
             SPRMutationOps::getParent(lca_parent), lca) : nullptr;
-        const nuc_one_hot* plca_other_arr = plca_other ? cf->getMajorArrayForNode(plca_other) : nullptr;
-        const nuc_one_hot* plca_arr = lca_parent ? cf->getMajorArrayForNode(lca_parent) : nullptr;
+        const nuc_one_hot* lca_parent_sibling_states = lca_parent_sibling
+            ? fitch->getMajorArrayForNode(lca_parent_sibling) : nullptr;
+        const nuc_one_hot* lca_parent_states = lca_parent
+            ? fitch->getMajorArrayForNode(lca_parent) : nullptr;
 
-        std::vector<SparsePathNode> above_lca_parent = buildPath(
+        std::vector<PathStep> above_lca_parent = buildPath(
             lca_parent, lca_parent ? SPRMutationOps::getParent(lca_parent) : nullptr,
-            nullptr, cf);
+            nullptr, fitch);
 
         // Collect O(M) affected patterns
         std::vector<int> affected;
-        addDiffs(cf, src, affected);
-        addDiffs(cf, sib, affected);
-        addDiffs(cf, src_parent, affected);
-        for (const auto& pn : src_path) addDiffs(cf, pn.node, affected);
-        addDiffs(cf, lca, affected);
-        finalizeDiffs(affected);
+        collectDiffs(fitch, src, affected);
+        collectDiffs(fitch, sibling, affected);
+        collectDiffs(fitch, src_parent, affected);
+        for (const auto& step : src_path) collectDiffs(fitch, step.node, affected);
+        collectDiffs(fitch, lca, affected);
         local_M = (int)affected.size();
 
-        for (int p : affected) {
-            int freq = cf->getPatternFreq(p);
-            nuc_one_hot src_f = src_arr[p], sib_f = sib_arr[p], sp_f = sp_arr[p];
-            int old_sp_pen = (src_f & sib_f) ? 0 : 1;
+        for (int ptn : affected) {
+            int freq = fitch->getPatternFreq(ptn);
+            nuc_one_hot src_fitch = src_states[ptn], sibling_fitch = sibling_st[ptn];
+            nuc_one_hot sp_fitch = sp_states[ptn];
+            int old_sp_penalty = (src_fitch & sibling_fitch) ? 0 : 1;
 
-            // 1. src-side propagation: sp_f → sib_f through gp→...→src_branch
-            nuc_one_hot src_old = sp_f, src_new = sib_f;
-            propagatePath(src_path, p, freq, src_old, src_new, score);
+            // 1. src-side propagation
+            nuc_one_hot src_old = sp_fitch, src_new = sibling_fitch;
+            propagatePath(src_path, ptn, freq, src_old, src_new, score);
 
-            nuc_one_hot src_child_old = src_branch_arr[p];
+            nuc_one_hot src_child_old = src_branch_states[ptn];
             nuc_one_hot src_child_new = (src_old != src_new) ? src_new : src_child_old;
 
-            // 2. sp_new penalty: !(src ∩ updated_src_branch)
-            score += (((src_f & src_child_new) ? 0 : 1) - old_sp_pen) * freq;
+            // 2. New src_parent penalty
+            score += (((src_fitch & src_child_new) ? 0 : 1) - old_sp_penalty) * freq;
 
-            // 3. sp_new Fitch
-            nuc_one_hot sp_new_f = fitchMerge(src_f, src_child_new);
+            // 3. New src_parent Fitch state
+            nuc_one_hot new_sp_fitch = fitchMerge(src_fitch, src_child_new);
 
-            // 4. At lca: child changed from src_child_old to sp_new_f
-            nuc_one_hot lca_other_f = lca_other_arr ? lca_other_arr[p] : 0xF;
-            nuc_one_hot old_lca_f = lca_arr[p];
-            nuc_one_hot new_lca_f;
-            score += penaltyDelta(src_child_old, sp_new_f, lca_other_f, new_lca_f) * freq;
+            // 4. At lca: child changed from src_child_old to new_sp_fitch
+            nuc_one_hot lca_sib_fitch = lca_sibling_states ? lca_sibling_states[ptn] : 0xF;
+            nuc_one_hot old_lca_fitch = lca_states[ptn];
+            nuc_one_hot new_lca_fitch;
+            score += penaltyDelta(src_child_old, new_sp_fitch, lca_sib_fitch, new_lca_fitch) * freq;
 
             // 5. Propagate above lca
             if (!lca_parent && lca->isLeaf()) {
-                // lca IS root leaf: root edge = root—src_branch → root—sp_new
-                score += rootEdgeDelta(lca_arr[p], src_child_old, sp_new_f) * freq;
-            } else if (new_lca_f != old_lca_f && lca_parent) {
+                score += rootEdgeDelta(lca_states[ptn], src_child_old, new_sp_fitch) * freq;
+            } else if (new_lca_fitch != old_lca_fitch && lca_parent) {
                 if (lca_parent->isLeaf()) {
-                    // parent(lca) is root leaf
-                    score += rootEdgeDelta(plca_arr[p], old_lca_f, new_lca_f) * freq;
+                    score += rootEdgeDelta(lca_parent_states[ptn], old_lca_fitch, new_lca_fitch) * freq;
                 } else {
-                    nuc_one_hot plca_other_f = plca_other_arr ? plca_other_arr[p] : 0xF;
-                    nuc_one_hot new_plca_f;
-                    score += penaltyDelta(old_lca_f, new_lca_f, plca_other_f, new_plca_f) * freq;
+                    nuc_one_hot lca_parent_sib_fitch = lca_parent_sibling_states
+                        ? lca_parent_sibling_states[ptn] : 0xF;
+                    nuc_one_hot new_lca_parent_fitch;
+                    score += penaltyDelta(old_lca_fitch, new_lca_fitch, lca_parent_sib_fitch,
+                                          new_lca_parent_fitch) * freq;
 
-                    if (new_plca_f != (plca_arr ? plca_arr[p] : (nuc_one_hot)0xF)) {
-                        nuc_one_hot ao = plca_arr[p], an = new_plca_f;
-                        propagatePath(above_lca_parent, p, freq, ao, an, score);
+                    if (new_lca_parent_fitch != (lca_parent_states ? lca_parent_states[ptn] : (nuc_one_hot)0xF)) {
+                        nuc_one_hot old_prop = lca_parent_states[ptn], new_prop = new_lca_parent_fitch;
+                        propagatePath(above_lca_parent, ptn, freq, old_prop, new_prop, score);
                     }
                 }
             }
         }
 
     } else {
-        // ========== CASE B2: general (lca above sp, dst below lca) ==========
-        // Independent src-side and dst-side paths meet at lca.
-
-        std::vector<SparsePathNode> src_path = buildPath(src_parent, gp, lca, cf);
-        std::vector<SparsePathNode> dst_path = buildPath(dst, dst_parent, lca, cf);
+        // ========== CASE B2: general ==========
+        std::vector<PathStep> src_path = buildPath(src_parent, grandparent, lca, fitch);
+        std::vector<PathStep> dst_path = buildPath(dst, dst_parent, lca, fitch);
 
         PhyloNode* src_branch = src_path.empty() ? src_parent : src_path.back().node;
         PhyloNode* dst_branch = dst_path.empty() ? dst : dst_path.back().node;
-        const nuc_one_hot* src_branch_arr = cf->getMajorArrayForNode(src_branch);
-        const nuc_one_hot* dst_branch_arr = cf->getMajorArrayForNode(dst_branch);
+        const nuc_one_hot* src_branch_states = fitch->getMajorArrayForNode(src_branch);
+        const nuc_one_hot* dst_branch_states = fitch->getMajorArrayForNode(dst_branch);
 
-        const nuc_one_hot* lca_arr = cf->getMajorArrayForNode(lca);
-        std::vector<SparsePathNode> above_lca = buildPath(
-            lca, SPRMutationOps::getParent(lca), nullptr, cf);
+        const nuc_one_hot* lca_states = fitch->getMajorArrayForNode(lca);
+        std::vector<PathStep> above_lca = buildPath(
+            lca, SPRMutationOps::getParent(lca), nullptr, fitch);
 
         // Collect O(M) affected patterns
         std::vector<int> affected;
-        addDiffs(cf, src, affected);
-        addDiffs(cf, sib, affected);
-        addDiffs(cf, src_parent, affected);
-        addDiffs(cf, dst, affected);
-        for (const auto& pn : src_path) addDiffs(cf, pn.node, affected);
-        for (const auto& pn : dst_path) addDiffs(cf, pn.node, affected);
-        finalizeDiffs(affected);
+        collectDiffs(fitch, src, affected);
+        collectDiffs(fitch, sibling, affected);
+        collectDiffs(fitch, src_parent, affected);
+        collectDiffs(fitch, dst, affected);
+        for (const auto& step : src_path) collectDiffs(fitch, step.node, affected);
+        for (const auto& step : dst_path) collectDiffs(fitch, step.node, affected);
         local_M = (int)affected.size();
 
-        for (int p : affected) {
-            int freq = cf->getPatternFreq(p);
-            nuc_one_hot src_f = src_arr[p], sib_f = sib_arr[p];
-            nuc_one_hot dst_f = dst_arr[p],  sp_f = sp_arr[p];
+        for (int ptn : affected) {
+            int freq = fitch->getPatternFreq(ptn);
+            nuc_one_hot src_fitch = src_states[ptn], sibling_fitch = sibling_st[ptn];
+            nuc_one_hot dst_fitch = dst_states[ptn], sp_fitch = sp_states[ptn];
 
-            // 1. sp penalty: old !(src∩sib) → new !(src∩dst)
-            score += (((src_f & dst_f) ? 0 : 1) - ((src_f & sib_f) ? 0 : 1)) * freq;
+            // 1. src_parent penalty change
+            score += (((src_fitch & dst_fitch) ? 0 : 1) - ((src_fitch & sibling_fitch) ? 0 : 1)) * freq;
 
-            // 2. src-side: sp_f → sib_f
-            nuc_one_hot src_old = sp_f, src_new = sib_f;
-            propagatePath(src_path, p, freq, src_old, src_new, score);
+            // 2. src-side: sp_fitch → sibling_fitch
+            nuc_one_hot src_old = sp_fitch, src_new = sibling_fitch;
+            propagatePath(src_path, ptn, freq, src_old, src_new, score);
 
-            // 3. dst-side: dst_f → sp_new_f
-            nuc_one_hot sp_new_f = fitchMerge(src_f, dst_f);
-            nuc_one_hot dst_old = dst_f, dst_new = sp_new_f;
-            propagatePath(dst_path, p, freq, dst_old, dst_new, score);
+            // 3. dst-side: dst_fitch → new_sp_fitch
+            nuc_one_hot new_sp_fitch = fitchMerge(src_fitch, dst_fitch);
+            nuc_one_hot dst_old = dst_fitch, dst_new = new_sp_fitch;
+            propagatePath(dst_path, ptn, freq, dst_old, dst_new, score);
 
-            // 4. At LCA: combine changes from both branches
-            bool src_ch = (src_old != src_new), dst_ch = (dst_old != dst_new);
-            if (!src_ch && !dst_ch) continue;
+            // 4. At LCA: combine changes from both sides
+            bool src_changed = (src_old != src_new), dst_changed = (dst_old != dst_new);
+            if (!src_changed && !dst_changed) continue;
 
-            nuc_one_hot old_lca_f = lca_arr[p];
-            nuc_one_hot sc_old = src_branch_arr[p];
-            nuc_one_hot dc_old = dst_branch_arr[p];
-            nuc_one_hot sc_new = src_ch ? src_new : sc_old;
-            nuc_one_hot dc_new = dst_ch ? dst_new : dc_old;
+            nuc_one_hot old_lca_fitch = lca_states[ptn];
+            nuc_one_hot src_child_old_fitch = src_branch_states[ptn];
+            nuc_one_hot dst_child_old_fitch = dst_branch_states[ptn];
+            nuc_one_hot src_child_new_fitch = src_changed ? src_new : src_child_old_fitch;
+            nuc_one_hot dst_child_new_fitch = dst_changed ? dst_new : dst_child_old_fitch;
 
-            int old_pen = (sc_old & dc_old) ? 0 : 1;
-            nuc_one_hot new_lca_f = fitchMerge(sc_new, dc_new);
-            int new_pen = (sc_new & dc_new) ? 0 : 1;
-            score += (new_pen - old_pen) * freq;
+            int old_penalty = (src_child_old_fitch & dst_child_old_fitch) ? 0 : 1;
+            nuc_one_hot new_lca_fitch = fitchMerge(src_child_new_fitch, dst_child_new_fitch);
+            int new_penalty = (src_child_new_fitch & dst_child_new_fitch) ? 0 : 1;
+            score += (new_penalty - old_penalty) * freq;
 
             // 5. Propagate above LCA
-            if (new_lca_f != old_lca_f) {
-                nuc_one_hot ao = old_lca_f, an = new_lca_f;
-                propagatePath(above_lca, p, freq, ao, an, score);
+            if (new_lca_fitch != old_lca_fitch) {
+                nuc_one_hot old_prop = old_lca_fitch, new_prop = new_lca_fitch;
+                propagatePath(above_lca, ptn, freq, old_prop, new_prop, score);
             }
         }
     }
 
     // Track O(M) stats
     s_total_M += local_M;
-    s_total_P += nptn;
+    s_total_P += num_patterns;
     s_move_count++;
     if (local_M > s_max_M) s_max_M = local_M;
 
@@ -387,7 +335,7 @@ int SPRDeltaExact::calculateParsimonyDelta(PhyloNode* src, PhyloNode* src_parent
     // Binary src_parent: use sparse Fitch-propagation approach.
     // O(M) via precomputed Fitch diffs — only iterates over patterns where
     // Fitch sets differ on affected edges. M << P for real data.
-    if (num_neighbors == 3 && s_cf) {
+    if (num_neighbors == 3 && s_fitch) {
         return sparseBinaryDelta(src, src_parent, dst, dst_parent);
     }
 
@@ -421,7 +369,7 @@ int SPRDeltaExact::calculateParsimonyDelta(PhyloNode* src, PhyloNode* src_parent
         }
         if (!overlaps) {
             int dst_lca_delta = SPRMutationOps::recomputeFullDelta(
-                lca, dst_change.position, dst_change.decremented, dst_change.incremented,
+                lca, dst_change.position, dst_change.removed_alleles, dst_change.added_alleles,
                 dst_change.par_state);
             parsimony_score_change += dst_lca_delta;
         }
@@ -562,9 +510,6 @@ int SPRDeltaExact::computeLCAAndAboveDelta(PhyloNode* lca, PhyloNode* src,
     }
 
     // Merge src and dst changes using cancel formula.
-    // Key insight from dbl_inc_dec_mutations: src branch decrements alleles
-    // while dst branch increments them (opposite directions), so changes
-    // cancel at the same allele. Net change per allele is at most ±1.
     MutationCountChangeCollection combined;
     combined.reserve(src_changes.size() + dst_changes.size());
 
@@ -579,16 +524,16 @@ int SPRDeltaExact::computeLCAAndAboveDelta(PhyloNode* lca, PhyloNode* src,
             combined.push_back(*dst_it);
             dst_it++;
         } else {
-            // Same position: merge using cancel formula (dbl_inc_dec_mutations)
-            uint8_t any_inc = (src_it->incremented & ~dst_it->decremented) |
-                             (dst_it->incremented & ~src_it->decremented);
-            uint8_t any_dec = (src_it->decremented & ~dst_it->incremented) |
-                             (dst_it->decremented & ~src_it->incremented);
+            // Same position: merge using cancel formula
+            uint8_t any_inc = (src_it->added_alleles & ~dst_it->removed_alleles) |
+                             (dst_it->added_alleles & ~src_it->removed_alleles);
+            uint8_t any_dec = (src_it->removed_alleles & ~dst_it->added_alleles) |
+                             (dst_it->removed_alleles & ~src_it->added_alleles);
 
             if (any_inc || any_dec) {
                 MutationCountChange merged(src_it->position, any_dec, any_inc);
-                merged.par_state = src_it->par_state;  // Both should have same par_state (LCA's parent allele)
-                merged.major_allele = src_it->major_allele;
+                merged.par_state = src_it->par_state;
+                merged.major_allele_set = src_it->major_allele_set;
                 merged.boundary1_allele = src_it->boundary1_allele;
                 combined.push_back(merged);
             }
@@ -676,23 +621,20 @@ int SPRDeltaExact::checkMoveProfitableLCA(PhyloNode* src, PhyloNode* lca,
 
         if (mutations_iter != mutations_end && mutations_iter->position == pos) {
             src_has_mutation = true;
-            src_allele = mutations_iter->incremented;
+            src_allele = mutations_iter->added_alleles;
         } else {
-            // When src has no mutation at this position in the collection,
-            // src's allele defaults to the LCA's allele (same as branch parent).
-            // This mirrors checkMoveProfitableDstNotLCA's default behavior.
             src_allele = branch_mut.get_par_one_hot();
         }
 
-        uint8_t branch_allele = branch_mut.all_major_allele;
+        uint8_t branch_allele = branch_mut.major_allele_set;
 
         while (root_iter != root_end && root_iter->position < pos) {
             root_iter++;
         }
 
         if (root_iter != root_end && root_iter->position == pos) {
-            branch_allele = (branch_allele | root_iter->incremented) &
-                          (~root_iter->decremented);
+            branch_allele = (branch_allele | root_iter->added_alleles) &
+                          (~root_iter->removed_alleles);
         }
 
         uint8_t new_node_allele = src_allele & branch_allele;
@@ -715,24 +657,18 @@ int SPRDeltaExact::checkMoveProfitableLCA(PhyloNode* src, PhyloNode* lca,
             score_change++;
         }
 
-        // Track Fitch set changes at the mezzanine level for LCA propagation
         if (dst_added && new_node_allele != branch_allele) {
             dst_added->emplace_back(
                 pos,
-                branch_allele & ~new_node_allele,    // decremented
-                new_node_allele & ~branch_allele      // incremented
+                branch_allele & ~new_node_allele,
+                new_node_allele & ~branch_allele
             );
             dst_added->back().par_state = lca_parent_allele;
-            dst_added->back().major_allele = new_node_allele;
+            dst_added->back().major_allele_set = new_node_allele;
         }
 
     }
 
-    // Process positions in mutations NOT in src_branch_mutations.
-    // These are positions where src introduces a new allele at LCA that the
-    // old src_branch didn't have. The src-side counted removing these mutations,
-    // so we must account for re-inserting them at the destination.
-    // (Analogous to the second loop in checkMoveProfitableDstNotLCA.)
     for (const auto& mut_change : mutations) {
         int pos = mut_change.position;
 
@@ -743,12 +679,10 @@ int SPRDeltaExact::checkMoveProfitableLCA(PhyloNode* src, PhyloNode* lca,
         }
 
         if (!branch_has_mutation) {
-            uint8_t src_allele = mut_change.incremented;
+            uint8_t src_allele = mut_change.added_alleles;
             uint8_t parent_allele = mut_change.par_state;
 
             if (src_allele && !(src_allele & parent_allele)) {
-                // For path-edge entries: if src allele is in boundary1,
-                // Fitch cascade at intermediate node cancels this mutation
                 if (!mut_change.from_src &&
                     (src_allele & mut_change.boundary1_allele)) {
                     // Fitch cascade cancels - net effect is 0
@@ -756,7 +690,6 @@ int SPRDeltaExact::checkMoveProfitableLCA(PhyloNode* src, PhyloNode* lca,
                     score_change++;
                 }
 
-                // Track Fitch change at mezzanine level
                 if (dst_added) {
                     dst_added->emplace_back(
                         pos,
@@ -764,7 +697,7 @@ int SPRDeltaExact::checkMoveProfitableLCA(PhyloNode* src, PhyloNode* lca,
                         src_allele & ~parent_allele
                     );
                     dst_added->back().par_state = parent_allele;
-                    dst_added->back().major_allele = src_allele | parent_allele;
+                    dst_added->back().major_allele_set = src_allele | parent_allele;
                 }
             }
         }
@@ -816,13 +749,13 @@ int SPRDeltaExact::checkMoveProfitableDstNotLCA(PhyloNode* src, PhyloNode* dst,
 
         if (src_mutations_iter != src_mutations_end &&
             src_mutations_iter->position == pos) {
-            src_allele = src_mutations_iter->incremented;
+            src_allele = src_mutations_iter->added_alleles;
             src_has_allele = true;
         } else {
             src_allele = dst_mut.get_par_one_hot();
         }
 
-        uint8_t dst_allele = dst_mut.all_major_allele;
+        uint8_t dst_allele = dst_mut.major_allele_set;
 
         uint8_t new_internal_allele = src_allele & dst_allele;
 
@@ -856,15 +789,14 @@ int SPRDeltaExact::checkMoveProfitableDstNotLCA(PhyloNode* src, PhyloNode* dst,
 
         score_change += (new_mutations - old_mutations);
 
-        // Track Fitch set changes for LCA propagation
         if (dst_added && new_internal_allele != dst_allele) {
             dst_added->emplace_back(
                 pos,
-                dst_allele & ~new_internal_allele,    // decremented
-                new_internal_allele & ~dst_allele      // incremented
+                dst_allele & ~new_internal_allele,
+                new_internal_allele & ~dst_allele
             );
             dst_added->back().par_state = parent_allele;
-            dst_added->back().major_allele = new_internal_allele;
+            dst_added->back().major_allele_set = new_internal_allele;
         }
     }
 
@@ -884,7 +816,7 @@ int SPRDeltaExact::checkMoveProfitableDstNotLCA(PhyloNode* src, PhyloNode* dst,
         }
 
         if (!dst_has_mutation) {
-            uint8_t src_allele = src_mutations_iter->incremented;
+            uint8_t src_allele = src_mutations_iter->added_alleles;
             uint8_t parent_allele = src_mutations_iter->par_state;
 
             if (!(src_allele & parent_allele)) {
@@ -895,16 +827,14 @@ int SPRDeltaExact::checkMoveProfitableDstNotLCA(PhyloNode* src, PhyloNode* dst,
                 } else {
                     score_change++;
                 }
-                // Track Fitch change: new_node has {src_allele, parent_allele}
-                // Old child (dst) had {parent_allele}. Added: src_allele.
                 if (dst_added) {
                     dst_added->emplace_back(
                         pos,
-                        0,                              // nothing decremented
-                        src_allele & ~parent_allele     // src_allele added
+                        0,
+                        src_allele & ~parent_allele
                     );
                     dst_added->back().par_state = parent_allele;
-                    dst_added->back().major_allele = src_allele | parent_allele;
+                    dst_added->back().major_allele_set = src_allele | parent_allele;
                 }
             }
 
@@ -923,10 +853,10 @@ PhyloNode* SPRDeltaExact::findLCA(PhyloNode* node1, PhyloNode* node2, PhyloTree*
     int d1, d2;
     if (!s_node_depth.empty()) {
         // Use precomputed depths — O(1) lookup
-        auto it1 = s_node_depth.find(node1);
-        auto it2 = s_node_depth.find(node2);
-        d1 = (it1 != s_node_depth.end()) ? it1->second : 0;
-        d2 = (it2 != s_node_depth.end()) ? it2->second : 0;
+        d1 = (node1->id < (int)s_node_depth.size() && s_node_depth[node1->id] >= 0)
+             ? s_node_depth[node1->id] : 0;
+        d2 = (node2->id < (int)s_node_depth.size() && s_node_depth[node2->id] >= 0)
+             ? s_node_depth[node2->id] : 0;
     } else {
         // Walk to root to find depths (getParent is O(1) each)
         d1 = d2 = 0;

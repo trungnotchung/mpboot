@@ -5453,7 +5453,7 @@ void PhyloTree::initializeMutationOneHotFields() {
 					mut.mut_one_hot = char_to_one_hot(mut.mut_nuc);
 				}
 
-				mut.all_major_allele = mut.mut_one_hot;
+				mut.major_allele_set = mut.mut_one_hot;
 			}
 
 			if (!visited.count(neighbor)) {

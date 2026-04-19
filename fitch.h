@@ -23,6 +23,9 @@ public:
     // Score-only recompute: skips mutation generation.
     int recomputeScore();
 
+    // Recompute bottom-up Fitch states, score, and diffs (no topDown/mutations)
+    int recomputeWithDiffs();
+
     int countMutations() const;
 
     // Access: node_major[getIdx(node) * nptn + pattern]
@@ -31,6 +34,7 @@ public:
     const std::vector<std::vector<int>>& getPatternToSites() const { return pattern_to_sites; }
 
     int getNumPatterns() const { return nptn; }
+    int getMaxNodeId() const { return max_node_id; }
 
     int getPatternFreq(int ptn) const { return ptn_freq[ptn]; }
 
@@ -40,24 +44,9 @@ public:
     // Must be called AFTER mutations are populated on the tree edges.
     void buildPatternPositionMap();
 
-    const nuc_one_hot* getMajorArrayForNode(PhyloNode* node) const {
-        auto it = node_index.find(node);
-        if (it == node_index.end()) return nullptr;
-        return &node_major[it->second * nptn];
-    }
-
-    // Sorted pattern indices where this node's Fitch set differs from parent's.
-    const std::vector<int>* getFitchDiffs(PhyloNode* node) const {
-        auto it = node_index.find(node);
-        if (it == node_index.end()) return nullptr;
-        return &fitch_diffs[it->second];
-    }
-
-    nuc_one_hot getMajorForNode(PhyloNode* node, int ptn) const {
-        auto it = node_index.find(node);
-        if (it == node_index.end()) return 0;
-        return node_major[it->second * nptn + ptn];
-    }
+    const nuc_one_hot* getMajorArrayForNode(PhyloNode* node) const;
+    const std::vector<int>* getFitchDiffs(PhyloNode* node) const;
+    nuc_one_hot getMajorForNode(PhyloNode* node, int ptn) const;
 
     std::vector<nuc_one_hot> saveNodeMajor() const { return node_major; }
     void restoreNodeMajor(const std::vector<nuc_one_hot>& saved) { node_major = saved; }
@@ -68,7 +57,7 @@ public:
     // Like recomputeScoreDirty() but auto-saves/restores node_major.
     int recomputeScoreDirtyAndRestore(const std::set<PhyloNode*>& force_dirty);
 
-    const std::map<PhyloNode*, int>& getNodeIndex() const { return node_index; }
+    int getNodeIdx(PhyloNode* node) const;
 
 private:
     PhyloTree* tree;
@@ -76,8 +65,9 @@ private:
     // node_major[index * nptn + pattern] = one-hot Fitch state set
     std::vector<nuc_one_hot> node_major;
 
-    // std::map used instead of unordered_map due to ext/hash_map conflicts in this codebase
-    std::map<PhyloNode*, int> node_index;
+    // Flat vector indexed by node->id for O(1) lookup
+    std::vector<int> node_index;
+    int max_node_id;
 
     std::vector<std::vector<int>> pattern_to_sites;
 

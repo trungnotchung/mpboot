@@ -9,8 +9,7 @@
 #include <stack>
 #include <algorithm>
 #include <cassert>
-
-typedef uint8_t nuc_one_hot;
+#include "nucleotide_utils.h"
 
 char get_nuc(int8_t nuc_id);
 
@@ -21,18 +20,18 @@ struct Mutation {
     char par_nuc;
     char mut_nuc;
     bool is_missing;
-    unsigned char boundary1_allele;
+    nuc_one_hot boundary1_allele;
 
     nuc_one_hot par_one_hot;
     nuc_one_hot mut_one_hot;
-    nuc_one_hot all_major_allele;
+    nuc_one_hot major_allele_set;
 
     Mutation() {
         is_missing = false;
         boundary1_allele = 0;
         par_one_hot = 0;
         mut_one_hot = 0;
-        all_major_allele = 0;
+        major_allele_set = 0;
     }
 
     inline bool operator < (const Mutation &m) const {
@@ -50,7 +49,7 @@ struct Mutation {
         m.boundary1_allele = boundary1_allele;
         m.par_one_hot = par_one_hot;
         m.mut_one_hot = mut_one_hot;
-        m.all_major_allele = all_major_allele;
+        m.major_allele_set = major_allele_set;
         return m;
     }
 

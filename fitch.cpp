@@ -1,7 +1,7 @@
 #include "fitch.h"
 #include "phylotree.h"
 #include "phylonode.h"
-#include "onehot_encoding.h"
+#include "nucleotide_utils.h"
 #include <iostream>
 #include <queue>
 #include <set>
@@ -12,15 +12,37 @@ using namespace std;
 
 extern unsigned int dna_state_map[128];
 
-Fitch::Fitch(PhyloTree* tree) : tree(tree), nptn(0), num_nodes(0), root_side_mutation_count(0) {
+Fitch::Fitch(PhyloTree* tree) : tree(tree), nptn(0), num_nodes(0), max_node_id(0), root_side_mutation_count(0) {
     assert(tree != nullptr);
     assert(tree->aln != nullptr);
 }
 
 inline int Fitch::getIdx(PhyloNode* node) const {
-    auto it = node_index.find(node);
-    assert(it != node_index.end());
-    return it->second;
+    assert(node->id >= 0 && node->id < (int)node_index.size());
+    return node_index[node->id];
+}
+
+int Fitch::getNodeIdx(PhyloNode* node) const {
+    if (node->id < 0 || node->id >= (int)node_index.size()) return -1;
+    return node_index[node->id];
+}
+
+const nuc_one_hot* Fitch::getMajorArrayForNode(PhyloNode* node) const {
+    int idx = getNodeIdx(node);
+    if (idx < 0) return nullptr;
+    return &node_major[idx * nptn];
+}
+
+const vector<int>* Fitch::getFitchDiffs(PhyloNode* node) const {
+    int idx = getNodeIdx(node);
+    if (idx < 0) return nullptr;
+    return &fitch_diffs[idx];
+}
+
+nuc_one_hot Fitch::getMajorForNode(PhyloNode* node, int ptn) const {
+    int idx = getNodeIdx(node);
+    if (idx < 0) return 0;
+    return node_major[idx * nptn + ptn];
 }
 
 
@@ -66,12 +88,9 @@ void Fitch::buildPatternToSites() {
 static void fillFitchDiffsRecursive(PhyloNode* node, PhyloNode* parent,
                                      Fitch* cf,
                                      std::vector<std::vector<int>>& fitch_diffs) {
-    auto it_idx = cf->getNodeIndex().find(node);
-    auto it_par = cf->getNodeIndex().find(parent);
-    if (it_idx == cf->getNodeIndex().end() || it_par == cf->getNodeIndex().end()) return;
-
-    int node_idx = it_idx->second;
-    int par_idx = it_par->second;
+    int node_idx = cf->getNodeIdx(node);
+    int par_idx = cf->getNodeIdx(parent);
+    if (node_idx < 0 || par_idx < 0) return;
     int nptn = cf->getNumPatterns();
     const nuc_one_hot* node_arr = cf->getMajorArrayForNode(node);
     const nuc_one_hot* par_arr = cf->getMajorArrayForNode(parent);
@@ -210,11 +229,11 @@ void Fitch::topDown(PhyloNode* node, PhyloNode* parent,
                 mut.compressed_position = ptn;
                 mut.par_one_hot = parent_states[ptn];
                 mut.mut_one_hot = my_states[ptn];
-                mut.par_nuc = OneHotEncoding::oneHotToChar(parent_states[ptn]);
-                mut.mut_nuc = OneHotEncoding::oneHotToChar(my_states[ptn]);
+                mut.par_nuc = one_hot_to_char(parent_states[ptn]);
+                mut.mut_nuc = one_hot_to_char(my_states[ptn]);
                 mut.ref_nuc = mut.par_nuc;
                 mut.is_missing = false;
-                mut.all_major_allele = my_major[ptn];
+                mut.major_allele_set = my_major[ptn];
                 mut.boundary1_allele = boundary1;
 
                 if (edge_to_node) edge_to_node->mutations.push_back(mut);
@@ -242,19 +261,45 @@ int Fitch::run() {
 
     {
         int idx = 0;
+        max_node_id = 0;
         queue<PhyloNode*> q;
         set<PhyloNode*> visited;
         q.push((PhyloNode*)tree->root);
+        vector<PhyloNode*> bfs_order;
         while (!q.empty()) {
             PhyloNode* n = q.front(); q.pop();
             if (visited.count(n)) continue;
             visited.insert(n);
-            node_index[n] = idx++;
+            bfs_order.push_back(n);
+            if (n->id > max_node_id) max_node_id = n->id;
+            idx++;
             FOR_NEIGHBOR_IT(n, nullptr, it)
                 if (!visited.count((PhyloNode*)(*it)->node))
                     q.push((PhyloNode*)(*it)->node);
         }
+        set<int> used_ids;
+        for (PhyloNode* n : bfs_order) {
+            if (n->isLeaf() && n->id >= 0) {
+                used_ids.insert(n->id);
+            }
+        }
+        int next_id = max_node_id + 1;
+        for (PhyloNode* n : bfs_order) {
+            if (n->id < 0 || (!n->isLeaf() && used_ids.count(n->id))) {
+                while (used_ids.count(next_id)) next_id++;
+                n->id = next_id++;
+            }
+            used_ids.insert(n->id);
+            if (n->id > max_node_id) max_node_id = n->id;
+        }
+        max_node_id = next_id - 1;
         num_nodes = idx;
+        node_index.assign(max_node_id + 1, -1);
+        // Assign indices
+        idx = 0;
+        for (PhyloNode* n : bfs_order) {
+            node_index[n->id] = idx++;
+        }
     }
 
     node_major.assign((size_t)num_nodes * nptn, 0);
@@ -461,6 +506,31 @@ int Fitch::recompute() {
     computeFitchDiffs();
 
     return total_score;
+}
+
+int Fitch::recomputeWithDiffs() {
+    assert(!ptn_freq.empty());
+    assert(!node_major.empty());
+
+    PhyloNode* root = (PhyloNode*)tree->root;
+    PhyloNode* root_neighbor = (PhyloNode*)root->neighbors[0]->node;
+
+    int subtree_score = localBottomUp(root_neighbor, root);
+
+    int root_edge_score = 0;
+    int root_idx = getIdx(root);
+    int rn_idx = getIdx(root_neighbor);
+    const nuc_one_hot* root_major_ptr = majorAt(root_idx);
+    const nuc_one_hot* rn_major_ptr = majorAt(rn_idx);
+    for (int ptn = 0; ptn < nptn; ptn++) {
+        if ((root_major_ptr[ptn] & rn_major_ptr[ptn]) == 0) {
+            root_edge_score += ptn_freq[ptn];
+        }
+    }
+
+    computeFitchDiffs();
+
+    return subtree_score + root_edge_score;
 }
 
 int Fitch::recomputeScore() {

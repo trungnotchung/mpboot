@@ -3,7 +3,7 @@
 
 #include <vector>
 #include <cstdint>
-#include "onehot_encoding.h"
+#include "nucleotide_utils.h"
 #include "phylotree.h"
 #include "phylonode.h"
 #include "mutation.h"
@@ -11,47 +11,47 @@
 class MutationCountChange {
 public:
     int position;
-    uint8_t decremented;
-    uint8_t incremented;
-    uint8_t par_state;
-    uint8_t major_allele;
-    uint8_t boundary1_allele;
+    nuc_one_hot removed_alleles;
+    nuc_one_hot added_alleles;
+    nuc_one_hot par_state;
+    nuc_one_hot major_allele_set;
+    nuc_one_hot boundary1_allele;
     bool from_src;
 
     MutationCountChange()
-        : position(-1), decremented(0), incremented(0),
-          par_state(0), major_allele(0), boundary1_allele(0), from_src(false) {}
+        : position(-1), removed_alleles(0), added_alleles(0),
+          par_state(0), major_allele_set(0), boundary1_allele(0), from_src(false) {}
 
-    MutationCountChange(int pos, uint8_t dec, uint8_t inc)
-        : position(pos), decremented(dec), incremented(inc),
-          par_state(0), major_allele(0), boundary1_allele(0), from_src(false) {}
+    MutationCountChange(int pos, nuc_one_hot dec, nuc_one_hot inc)
+        : position(pos), removed_alleles(dec), added_alleles(inc),
+          par_state(0), major_allele_set(0), boundary1_allele(0), from_src(false) {}
 
-    MutationCountChange(int pos, uint8_t dec, uint8_t inc,
-                       uint8_t par, uint8_t major, uint8_t boundary1)
-        : position(pos), decremented(dec), incremented(inc),
-          par_state(par), major_allele(major), boundary1_allele(boundary1), from_src(false) {}
+    MutationCountChange(int pos, nuc_one_hot dec, nuc_one_hot inc,
+                       nuc_one_hot par, nuc_one_hot major, nuc_one_hot boundary1)
+        : position(pos), removed_alleles(dec), added_alleles(inc),
+          par_state(par), major_allele_set(major), boundary1_allele(boundary1), from_src(false) {}
 
     // Score change for intermediate nodes (on src->LCA or LCA->dst path).
-    int get_default_change_internal() const {
-        if (incremented && (incremented & par_state)) return -1;
-        if (decremented && (decremented & par_state)) return +1;
+    int scoreDeltaInternal() const {
+        if (added_alleles && (added_alleles & par_state)) return -1;
+        if (removed_alleles && (removed_alleles & par_state)) return +1;
         return 0;
     }
 
     // Score change for terminal nodes (src removal or dst insertion point).
-    int get_default_change_terminal() const {
-        if (incremented && !(incremented & par_state)) return +1;
-        if (decremented && !(decremented & par_state)) return -1;
+    int scoreDeltaTerminal() const {
+        if (added_alleles && !(added_alleles & par_state)) return +1;
+        if (removed_alleles && !(removed_alleles & par_state)) return -1;
         return 0;
     }
 
     // Only recompute major allele set if the change affects boundary-1 alleles.
-    bool is_sensitive() const {
-        return (decremented & boundary1_allele) || (incremented & boundary1_allele);
+    bool isSensitive() const {
+        return (removed_alleles & boundary1_allele) || (added_alleles & boundary1_allele);
     }
 
-    bool has_change() const { return decremented != 0 || incremented != 0; }
-    uint8_t get_net_change() const { return decremented | incremented; }
+    bool hasChange() const { return removed_alleles != 0 || added_alleles != 0; }
+    nuc_one_hot affectedAlleles() const { return removed_alleles | added_alleles; }
 
     bool operator<(const MutationCountChange& other) const { return position < other.position; }
     bool operator<(int pos) const { return position < pos; }
@@ -109,7 +109,7 @@ public:
     static void setRoot(PhyloNode* root);
 
     /// Set the Fitch pointer. Must be called after Fitch::run().
-    static void setCustomFitch(Fitch* cf);
+    static void setCustomFitch(Fitch* fitch);
 
     /// Get mutations on edge between node and dad (nullptr = parent edge).
     static std::vector<Mutation>* getMutations(PhyloNode* node, PhyloNode* dad);

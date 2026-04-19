@@ -79,8 +79,8 @@ void SPRMutationOps::setRoot(PhyloNode* root) {
     s_tree_root = root;
 }
 
-void SPRMutationOps::setCustomFitch(Fitch* cf) {
-    s_custom_fitch = cf;
+void SPRMutationOps::setCustomFitch(Fitch* fitch) {
+    s_custom_fitch = fitch;
 }
 
 PhyloNode* SPRMutationOps::getParent(PhyloNode* node) {
@@ -108,15 +108,15 @@ MutationCountChangeCollection SPRMutationOps::initMutationChange(PhyloNode* src,
     }
 
     for (const Mutation& m : *src_muts) {
-        if (m.is_valid() || m.all_major_allele != m.mut_one_hot) {
+        if (m.is_valid() || m.major_allele_set != m.mut_one_hot) {
             mutations.emplace_back(
                 m.position,
                 0,  // decremented
-                m.all_major_allele  // incremented
+                m.major_allele_set  // incremented
             );
 
             mutations.back().par_state = m.par_one_hot;
-            mutations.back().major_allele = m.all_major_allele;
+            mutations.back().major_allele_set = m.major_allele_set;
             mutations.back().boundary1_allele = m.boundary1_allele;
             mutations.back().from_src = true;
         }
@@ -155,7 +155,7 @@ void SPRMutationOps::mergeMutationSrcToLCA(PhyloNode* ancestor,
         if (iter != end && iter->position == m.position) {
             nuc_one_hot new_par_nuc = m.get_par_one_hot();
 
-            if (new_par_nuc != iter->incremented) {
+            if (new_par_nuc != iter->added_alleles) {
                 merged_mutations.push_back(*iter);
                 merged_mutations.back().par_state = m.get_par_one_hot();
             }
@@ -164,7 +164,7 @@ void SPRMutationOps::mergeMutationSrcToLCA(PhyloNode* ancestor,
         } else {
             merged_mutations.emplace_back(m.position, 0, m.get_mut_one_hot());
             merged_mutations.back().par_state = m.get_par_one_hot();
-            merged_mutations.back().major_allele = m.all_major_allele;
+            merged_mutations.back().major_allele_set = m.major_allele_set;
             merged_mutations.back().boundary1_allele = m.boundary1_allele;
         }
     }
@@ -212,7 +212,7 @@ MutationCountChangeCollection SPRMutationOps::mergeMutationLCAToRank(
             );
 
             child_mutations.back().par_state = child_mutation_iter->get_mut_one_hot();
-            child_mutations.back().major_allele = child_mutation_iter->all_major_allele;
+            child_mutations.back().major_allele_set = child_mutation_iter->major_allele_set;
             child_mutations.back().boundary1_allele = child_mutation_iter->boundary1_allele;
 
             child_mutation_iter++;
@@ -223,7 +223,7 @@ MutationCountChangeCollection SPRMutationOps::mergeMutationLCAToRank(
 
             nuc_one_hot new_par_allele = child_mutation_iter->get_mut_one_hot();
 
-            if (m.incremented != new_par_allele) {
+            if (m.added_alleles != new_par_allele) {
                 child_mutations.push_back(m);
                 child_mutations.back().par_state = new_par_allele;
             }
@@ -242,7 +242,7 @@ MutationCountChangeCollection SPRMutationOps::mergeMutationLCAToRank(
         );
 
         child_mutations.back().par_state = child_mutation_iter->get_mut_one_hot();
-        child_mutations.back().major_allele = child_mutation_iter->all_major_allele;
+        child_mutations.back().major_allele_set = child_mutation_iter->major_allele_set;
         child_mutations.back().boundary1_allele = child_mutation_iter->boundary1_allele;
 
         child_mutation_iter++;
@@ -292,7 +292,7 @@ void SPRMutationOps::getParentAlteredRemove(MutationCountChangeCollection& outpu
         }
 
         int position = parent_mut.position;
-        uint8_t old_major = parent_mut.all_major_allele;
+        uint8_t old_major = parent_mut.major_allele_set;
         uint8_t old_bnd1 = parent_mut.boundary1_allele;
 
         uint8_t src_allele = getSrcAlleleAtPosition(src, position);
@@ -335,7 +335,7 @@ void SPRMutationOps::getParentAlteredRemove(MutationCountChangeCollection& outpu
                 new_major & ~old_major
             );
             output.back().par_state = parent_mut.get_par_one_hot();
-            output.back().major_allele = new_major;
+            output.back().major_allele_set = new_major;
             output.back().boundary1_allele = new_bnd1;
         }
     }
@@ -372,7 +372,7 @@ void SPRMutationOps::getParentAlteredRemove(MutationCountChangeCollection& outpu
                         new_par_major & ~old_par_major
                     );
                     output.back().par_state = src_mut.get_par_one_hot();
-                    output.back().major_allele = new_par_major;
+                    output.back().major_allele_set = new_par_major;
                     output.back().boundary1_allele = 0;
                 }
             }
@@ -425,10 +425,10 @@ void SPRMutationOps::getIntermediateNodesMutations(
         }
 
         if (node_mut && node_mut->is_valid()) {
-            uint8_t all_major = node_mut->all_major_allele;
+            uint8_t all_major = node_mut->major_allele_set;
             uint8_t bnd1 = node_mut->boundary1_allele;
-            uint8_t dec = change.decremented;
-            uint8_t inc = change.incremented;
+            uint8_t dec = change.removed_alleles;
+            uint8_t inc = change.added_alleles;
             uint8_t par = node_mut->get_par_one_hot();
 
             size_t entries_before = parent_changes.size();
@@ -539,12 +539,12 @@ void SPRMutationOps::getIntermediateNodesMutations(
                         all_major & ~new_N_major,
                         new_N_major & ~all_major);
                     parent_changes.back().par_state = par;
-                    parent_changes.back().major_allele = new_N_major;
+                    parent_changes.back().major_allele_set = new_N_major;
                     parent_changes.back().boundary1_allele = 0;
                 }
             }
         } else {
-            score_change += change.get_default_change_internal();
+            score_change += change.scoreDeltaInternal();
         }
     }
 }
@@ -566,7 +566,7 @@ uint8_t SPRMutationOps::getSrcAlleleAtPosition(PhyloNode* src, int position) {
 
     for (const Mutation& m : *src_mutations) {
         if (m.position == position) {
-            return m.all_major_allele;
+            return m.major_allele_set;
         }
         if (m.position > position) {
             break;
@@ -619,7 +619,7 @@ int SPRMutationOps::recomputeMajorAllele(PhyloNode* node, int position,
         if (node_muts) {
             for (const Mutation& m : *node_muts) {
                 if (m.position == position) {
-                    node_major_at_pos = m.all_major_allele;
+                    node_major_at_pos = m.major_allele_set;
                     break;
                 }
                 if (m.position > position) break;
@@ -748,7 +748,7 @@ int SPRMutationOps::recomputeFullDelta(PhyloNode* node, int position,
         return 0;
     }
 
-    uint8_t all_major = node_mut->all_major_allele;
+    uint8_t all_major = node_mut->major_allele_set;
     uint8_t bnd1 = node_mut->boundary1_allele;
     uint8_t par_state = node_mut->get_par_one_hot();
     int score_change = 0;
@@ -825,10 +825,10 @@ void SPRMutationOps::checkParsimonyScoreChangeAboveLCA(
     }
 
     // Hit root: remaining changes that never matched a node mutation
-    // Use get_default_change_internal for each
+    // Use scoreDeltaInternal for each
     if (!parent && !current_changes.empty()) {
         for (const auto& c : current_changes) {
-            parsimony_score_change += c.get_default_change_internal();
+            parsimony_score_change += c.scoreDeltaInternal();
         }
         current_changes.clear();
     }
@@ -857,8 +857,8 @@ MutationCountChangeCollection merge_sorted(
             result.push_back(*it_b); ++it_b;
         } else {
             MutationCountChange combined = *it_a;
-            combined.decremented |= it_b->decremented;
-            combined.incremented |= it_b->incremented;
+            combined.removed_alleles |= it_b->removed_alleles;
+            combined.added_alleles |= it_b->added_alleles;
             result.push_back(combined);
             ++it_a; ++it_b;
         }

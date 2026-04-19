@@ -18,8 +18,8 @@ public:
     /** Run full optimization. Returns final parsimony score. */
     int optimizeTree(int max_passes = 1);
 
-    /** Single-radius batch SPR using Fitch. Returns score after optimization. */
-    int batchSPROptimize(int radius, Fitch& cf);
+    /** Run SPR rounds at a given radius. Returns score after optimization. */
+    int optimizeAtRadius(int radius, Fitch& fitch);
 
 private:
     PhyloTree* tree;
