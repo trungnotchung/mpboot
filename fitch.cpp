@@ -241,9 +241,9 @@ void Fitch::topDown(PhyloNode* node, PhyloNode* parent,
             }
         }
 
-        if (edge_to_node)
+        if (edge_to_node && !edge_to_node->mutations.empty())
             sort(edge_to_node->mutations.begin(), edge_to_node->mutations.end());
-        if (edge_to_parent)
+        if (edge_to_parent && !edge_to_parent->mutations.empty())
             sort(edge_to_parent->mutations.begin(), edge_to_parent->mutations.end());
     }
 

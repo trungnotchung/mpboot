@@ -345,13 +345,10 @@ void SPRMutationOps::getParentAlteredRemove(MutationCountChangeCollection& outpu
             continue;
         }
 
-        bool parent_has_mutation = false;
-        for (const Mutation& pm : *parent_mutations) {
-            if (pm.position == src_mut.position) {
-                parent_has_mutation = true;
-                break;
-            }
-        }
+        auto pm_it = std::lower_bound(parent_mutations->begin(), parent_mutations->end(),
+            src_mut.position,
+            [](const Mutation& m, int pos) { return m.position < pos; });
+        bool parent_has_mutation = (pm_it != parent_mutations->end() && pm_it->position == src_mut.position);
 
         if (!parent_has_mutation) {
             parsimony_score_change--;
@@ -417,11 +414,11 @@ void SPRMutationOps::getIntermediateNodesMutations(
 
     for (const MutationCountChange& change : child_changes) {
         const Mutation* node_mut = nullptr;
-        for (const Mutation& m : *node_mutations) {
-            if (m.position == change.position) {
-                node_mut = &m;
-                break;
-            }
+        auto nm_it = std::lower_bound(node_mutations->begin(), node_mutations->end(),
+            change.position,
+            [](const Mutation& m, int pos) { return m.position < pos; });
+        if (nm_it != node_mutations->end() && nm_it->position == change.position) {
+            node_mut = &(*nm_it);
         }
 
         if (node_mut && node_mut->is_valid()) {
@@ -564,13 +561,11 @@ uint8_t SPRMutationOps::getSrcAlleleAtPosition(PhyloNode* src, int position) {
         return 0;
     }
 
-    for (const Mutation& m : *src_mutations) {
-        if (m.position == position) {
-            return m.major_allele_set;
-        }
-        if (m.position > position) {
-            break;
-        }
+    auto it = std::lower_bound(src_mutations->begin(), src_mutations->end(),
+        position,
+        [](const Mutation& m, int pos) { return m.position < pos; });
+    if (it != src_mutations->end() && it->position == position) {
+        return it->major_allele_set;
     }
 
     return 0;
@@ -701,11 +696,11 @@ int SPRMutationOps::recomputeMajorAllele(PhyloNode* node, int position,
     std::vector<Mutation>* node_mutations = getMutations(node, parent);
     uint8_t par_state = 0;
     if (node_mutations) {
-        for (const Mutation& m : *node_mutations) {
-            if (m.position == position) {
-                par_state = m.get_par_one_hot();
-                break;
-            }
+        auto nm_it = std::lower_bound(node_mutations->begin(), node_mutations->end(),
+            position,
+            [](const Mutation& m, int pos) { return m.position < pos; });
+        if (nm_it != node_mutations->end() && nm_it->position == position) {
+            par_state = nm_it->get_par_one_hot();
         }
     }
 

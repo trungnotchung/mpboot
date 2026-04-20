@@ -10,47 +10,172 @@
 static Fitch* s_fitch = nullptr;
 static int s_current_score = 0;
 
-// Precomputed depth cache for O(1) depth lookup in findLCA.
 static std::vector<int> s_node_depth;
+
+// Euler tour + sparse table for O(1) LCA queries
+static std::vector<PhyloNode*> s_euler;
+static std::vector<int> s_euler_depth;
+static std::vector<int> s_first_appearance;
+static std::vector<std::vector<int>> s_sparse_table;
+static std::vector<int> s_log2;
+static bool s_lca_ready = false;
 
 void SPRDeltaExact::setCustomFitch(Fitch* fitch, int current_score) {
     s_fitch = fitch;
     s_current_score = current_score;
 }
 
-// Single-pass BFS: finds max_id and assigns depths simultaneously.
-void SPRDeltaExact::precomputeDepths(PhyloTree* tree) {
-    s_node_depth.clear();
-    if (!tree || !tree->root) return;
+static void eulerTourDFS(PhyloNode* root, int max_id) {
+    int estimated_nodes = max_id + 1;
+    s_euler.clear();
+    s_euler.reserve(estimated_nodes * 2);
+    s_euler_depth.clear();
+    s_euler_depth.reserve(estimated_nodes * 2);
+    s_first_appearance.assign(max_id + 1, -1);
+    s_node_depth.assign(max_id + 1, -1);
 
-    // Start with a reasonable initial size
-    int initial_size = std::max(1, tree->nodeNum * 2);
-    s_node_depth.assign(initial_size, -1);
+    struct DFSFrame {
+        PhyloNode* node;
+        PhyloNode* parent;
+        int child_idx;       // which child to process next
+        int depth;
+        int num_children;
+        int children_offset; // offset into children_buf
+    };
 
-    std::queue<std::pair<PhyloNode*, int>> q;
-    q.push({(PhyloNode*)tree->root, 0});
+    static std::vector<PhyloNode*> children_buf;
+    static std::vector<DFSFrame> stack;
+    children_buf.clear();
+    children_buf.reserve(estimated_nodes * 3);  // each node has ~3 neighbors
+    stack.clear();
+    stack.reserve(estimated_nodes);
 
-    while (!q.empty()) {
-        PhyloNode* node = q.front().first; int depth = q.front().second; q.pop();
-        if (node->id < 0) continue;
+    DFSFrame root_frame;
+    root_frame.node = root;
+    root_frame.parent = nullptr;
+    root_frame.child_idx = 0;
+    root_frame.depth = 0;
 
-        // Grow vector if needed
-        if (node->id >= (int)s_node_depth.size())
-            s_node_depth.resize(node->id + 1, -1);
+    int children_start = (int)children_buf.size();
+    FOR_NEIGHBOR_IT(root, nullptr, it) {
+        children_buf.push_back((PhyloNode*)(*it)->node);
+    }
+    root_frame.num_children = (int)children_buf.size() - children_start;
+    root_frame.children_offset = children_start;
 
-        // Skip already visited
-        if (s_node_depth[node->id] >= 0) continue;
-        s_node_depth[node->id] = depth;
+    s_euler.push_back(root);
+    s_euler_depth.push_back(0);
+    s_first_appearance[root->id] = 0;
+    s_node_depth[root->id] = 0;
 
-        FOR_NEIGHBOR_IT(node, nullptr, it) {
-            PhyloNode* neighbor = (PhyloNode*)(*it)->node;
-            if (neighbor->id >= 0) {
-                bool visited = (neighbor->id < (int)s_node_depth.size() &&
-                               s_node_depth[neighbor->id] >= 0);
-                if (!visited) q.push({neighbor, depth + 1});
+    stack.push_back(root_frame);
+
+    while (!stack.empty()) {
+        DFSFrame& frame = stack.back();
+
+        if (frame.child_idx < frame.num_children) {
+            PhyloNode* child = children_buf[frame.children_offset + frame.child_idx];
+            frame.child_idx++;
+
+            if (child == frame.parent) continue;
+            if (child->id >= 0 && child->id <= max_id && s_node_depth[child->id] >= 0) continue;
+
+            int child_depth = frame.depth + 1;
+
+            s_node_depth[child->id] = child_depth;
+            s_first_appearance[child->id] = (int)s_euler.size();
+            s_euler.push_back(child);
+            s_euler_depth.push_back(child_depth);
+
+            DFSFrame child_frame;
+            child_frame.node = child;
+            child_frame.parent = frame.node;
+            child_frame.child_idx = 0;
+            child_frame.depth = child_depth;
+
+            int cs = (int)children_buf.size();
+            FOR_NEIGHBOR_IT(child, nullptr, it2) {
+                children_buf.push_back((PhyloNode*)(*it2)->node);
+            }
+            child_frame.num_children = (int)children_buf.size() - cs;
+            child_frame.children_offset = cs;
+
+            stack.push_back(child_frame);
+        } else {
+            stack.pop_back();
+            if (!stack.empty()) {
+                DFSFrame& parent_frame = stack.back();
+                s_euler.push_back(parent_frame.node);
+                s_euler_depth.push_back(parent_frame.depth);
             }
         }
     }
+}
+
+static void buildSparseTable() {
+    int n = (int)s_euler_depth.size();
+    if (n == 0) return;
+
+    s_log2.assign(n + 1, 0);
+    for (int i = 2; i <= n; i++)
+        s_log2[i] = s_log2[i / 2] + 1;
+
+    int LOG = s_log2[n] + 1;
+    s_sparse_table.assign(n, std::vector<int>(LOG, 0));
+
+    for (int i = 0; i < n; i++)
+        s_sparse_table[i][0] = i;
+
+    for (int j = 1; j < LOG; j++) {
+        int len = 1 << j;
+        for (int i = 0; i + len <= n; i++) {
+            int left = s_sparse_table[i][j - 1];
+            int right = s_sparse_table[i + (len >> 1)][j - 1];
+            s_sparse_table[i][j] = (s_euler_depth[left] <= s_euler_depth[right]) ? left : right;
+        }
+    }
+}
+
+static int rmq(int l, int r) {
+    if (l > r) std::swap(l, r);
+    int len = r - l + 1;
+    int k = s_log2[len];
+    int left = s_sparse_table[l][k];
+    int right = s_sparse_table[r - (1 << k) + 1][k];
+    return (s_euler_depth[left] <= s_euler_depth[right]) ? left : right;
+}
+
+void SPRDeltaExact::precomputeDepths(PhyloTree* tree) {
+    s_lca_ready = false;
+    s_node_depth.clear();
+    if (!tree || !tree->root) return;
+
+    int max_id = 0;
+    std::queue<PhyloNode*> bfs_q;
+    std::vector<bool> visited;
+    int initial_size = std::max(1, tree->nodeNum * 2);
+    visited.assign(initial_size, false);
+    bfs_q.push((PhyloNode*)tree->root);
+
+    while (!bfs_q.empty()) {
+        PhyloNode* node = bfs_q.front(); bfs_q.pop();
+        if (node->id < 0) continue;
+        if (node->id >= (int)visited.size()) visited.resize(node->id + 1, false);
+        if (visited[node->id]) continue;
+        visited[node->id] = true;
+        if (node->id > max_id) max_id = node->id;
+        FOR_NEIGHBOR_IT(node, nullptr, it) {
+            PhyloNode* nb = (PhyloNode*)(*it)->node;
+            if (nb->id >= 0) {
+                if (nb->id >= (int)visited.size() || !visited[nb->id])
+                    bfs_q.push(nb);
+            }
+        }
+    }
+
+    eulerTourDFS((PhyloNode*)tree->root, max_id);
+    buildSparseTable();
+    s_lca_ready = true;
 }
 
 static std::vector<PathStep> buildPath(PhyloNode* prev, PhyloNode* cur,
@@ -844,33 +969,35 @@ int SPRDeltaExact::checkMoveProfitableDstNotLCA(PhyloNode* src, PhyloNode* dst,
     return score_change;
 }
 
-// Depth-walk LCA: O(depth_diff + lca_depth) time, O(1) space — no heap allocation.
-// Uses precomputed depths for O(1) lookup when available, else walks to root.
 PhyloNode* SPRDeltaExact::findLCA(PhyloNode* node1, PhyloNode* node2, PhyloTree* tree) {
     if (!node1 || !node2) return nullptr;
     if (node1 == node2) return node1;
 
+    if (s_lca_ready &&
+        node1->id < (int)s_first_appearance.size() && s_first_appearance[node1->id] >= 0 &&
+        node2->id < (int)s_first_appearance.size() && s_first_appearance[node2->id] >= 0) {
+        int l = s_first_appearance[node1->id];
+        int r = s_first_appearance[node2->id];
+        int idx = rmq(l, r);
+        return s_euler[idx];
+    }
+
     int d1, d2;
     if (!s_node_depth.empty()) {
-        // Use precomputed depths — O(1) lookup
         d1 = (node1->id < (int)s_node_depth.size() && s_node_depth[node1->id] >= 0)
              ? s_node_depth[node1->id] : 0;
         d2 = (node2->id < (int)s_node_depth.size() && s_node_depth[node2->id] >= 0)
              ? s_node_depth[node2->id] : 0;
     } else {
-        // Walk to root to find depths (getParent is O(1) each)
         d1 = d2 = 0;
         for (PhyloNode* c = node1; c; c = SPRMutationOps::getParent(c)) d1++;
         for (PhyloNode* c = node2; c; c = SPRMutationOps::getParent(c)) d2++;
     }
 
-    // Bring deeper node up to same depth
     PhyloNode* a = node1;
     PhyloNode* b = node2;
     while (d1 > d2) { a = SPRMutationOps::getParent(a); d1--; }
     while (d2 > d1) { b = SPRMutationOps::getParent(b); d2--; }
-
-    // Walk both up until they meet
     while (a != b) {
         a = SPRMutationOps::getParent(a);
         b = SPRMutationOps::getParent(b);

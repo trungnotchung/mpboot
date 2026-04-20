@@ -470,11 +470,6 @@ static vector<bool> s_bfs_visited;
 static vector<int> s_bfs_visited_ids;  // track which IDs were set for fast reset
 
 static bool isNeighborhoodDirty(PhyloNode* node, int radius, const vector<bool>& dirty) {
-    // Check if any dirty flag is set (empty check)
-    bool has_dirty = false;
-    for (size_t i = 0; i < dirty.size() && !has_dirty; i++) has_dirty = dirty[i];
-    if (!has_dirty) return true;
-
     if (dirty[node->id]) return true;
 
     // Fast BFS with reusable visited buffer
@@ -512,22 +507,34 @@ SPROptimizer::SPROptimizer(PhyloTree* tree) : tree(tree), current_parsimony_scor
 
 SPROptimizer::~SPROptimizer() {}
 
+static vector<bool> s_select_used;
+static vector<int> s_select_used_ids;
+
 // Select non-conflicting moves greedily (best delta first).
 static vector<SPRCandidate> selectMoves(vector<SPRCandidate>& candidates, int max_id) {
     sort(candidates.begin(), candidates.end(),
          [](const SPRCandidate& a, const SPRCandidate& b) { return a.delta < b.delta; });
 
-    vector<bool> used(max_id + 1, false);
+    if ((int)s_select_used.size() < max_id + 1) {
+        s_select_used.assign(max_id + 1, false);
+        s_select_used_ids.reserve(max_id + 1);
+    }
+    for (int id : s_select_used_ids) s_select_used[id] = false;
+    s_select_used_ids.clear();
+
     vector<SPRCandidate> selected;
     for (const auto& move : candidates) {
-        if (used[move.src->id] || used[move.src_parent->id] ||
-            used[move.sibling1->id] || used[move.sibling2->id] ||
-            used[move.dst->id] || used[move.dst_parent->id])
+        if (s_select_used[move.src->id] || s_select_used[move.src_parent->id] ||
+            s_select_used[move.sibling1->id] || s_select_used[move.sibling2->id] ||
+            s_select_used[move.dst->id] || s_select_used[move.dst_parent->id])
             continue;
         selected.push_back(move);
-        used[move.src->id] = true;         used[move.src_parent->id] = true;
-        used[move.sibling1->id] = true;    used[move.sibling2->id] = true;
-        used[move.dst->id] = true;         used[move.dst_parent->id] = true;
+        s_select_used[move.src->id] = true;         s_select_used_ids.push_back(move.src->id);
+        s_select_used[move.src_parent->id] = true;  s_select_used_ids.push_back(move.src_parent->id);
+        s_select_used[move.sibling1->id] = true;    s_select_used_ids.push_back(move.sibling1->id);
+        s_select_used[move.sibling2->id] = true;    s_select_used_ids.push_back(move.sibling2->id);
+        s_select_used[move.dst->id] = true;          s_select_used_ids.push_back(move.dst->id);
+        s_select_used[move.dst_parent->id] = true;   s_select_used_ids.push_back(move.dst_parent->id);
     }
     return selected;
 }
@@ -583,8 +590,8 @@ int SPROptimizer::optimizeAtRadius(int radius, Fitch& fitch) {
     int initial_score = cur_score;
     int max_id = fitch.getMaxNodeId();
 
-    orientTreeToRoot(tree, max_id);
-    SPRDeltaExact::precomputeDepths(tree);
+    // Phase 1.2: Orient/depths assumed done by caller (optimizeTree) or previous round.
+    // Only re-orient after applying moves within a round.
 
     string radius_str = (radius == 0) ? "unbounded" : to_string(radius);
     cout << "=== Batch SPR (radius " << radius_str << ") ===" << endl;
@@ -594,9 +601,11 @@ int SPROptimizer::optimizeAtRadius(int radius, Fitch& fitch) {
     bool has_dirty = false;
     int dirty_check_radius = (radius == 0) ? 32 : radius;
 
-    // Initialize reusable BFS visited buffer
-    s_bfs_visited.assign(max_id + 1, false);
-    s_bfs_visited_ids.reserve(max_id + 1);
+    // Phase 2.2: Persistent BFS visited buffer — only resize if needed, don't re-initialize
+    if ((int)s_bfs_visited.size() < max_id + 1) {
+        s_bfs_visited.assign(max_id + 1, false);
+        s_bfs_visited_ids.reserve(max_id + 1);
+    }
 
     // Reusable DFS visited buffer
     vector<bool> dfs_visited(max_id + 1, false);
@@ -720,9 +729,17 @@ int SPROptimizer::optimizeTree(int max_passes, int max_radius) {
         int start = fitch.recomputeWithDiffs();
         SPRDeltaExact::setCustomFitch(&fitch, start);
 
+        // Phase 1.2: Orient tree once per pass (not per radius)
+        int max_id = fitch.getMaxNodeId();
+        orientTreeToRoot(tree, max_id);
+        SPRDeltaExact::precomputeDepths(tree);
+
         // Try doubling radii: 1, 2, 4, 8, 16, 32, ...
-        for (int r = 1; r <= max_radius; r *= 2)
+        for (int r = 1; ; r *= 2) {
+            r = min(r, max_radius);
             optimizeAtRadius(r, fitch);
+            if (r == max_radius) break;
+        }
 
         int end = fitch.recomputeWithDiffs();
         cout << "Pass " << pass + 1 << ": " << start << " -> " << end
