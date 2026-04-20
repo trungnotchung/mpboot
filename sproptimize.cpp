@@ -32,7 +32,6 @@ static inline void collectDiffsMerged(Fitch* fitch, PhyloNode* node, vector<int>
 }
 
 // Precomputed per-source state for O(M) delta evaluation.
-// Scratch buffers are reused across evaluate() calls to avoid heap allocation.
 class SPRSourceState {
 public:
     SPRSourceState(Fitch* fitch, PhyloNode* src, PhyloNode* src_parent);
@@ -465,9 +464,8 @@ static void markDirty(const vector<SPRCandidate>& moves, vector<bool>& dirty,
     }
 }
 
-// Reusable scratch buffer for BFS visited tracking (avoids per-call allocation)
 static vector<bool> s_bfs_visited;
-static vector<int> s_bfs_visited_ids;  // track which IDs were set for fast reset
+static vector<int> s_bfs_visited_ids;
 
 static bool isNeighborhoodDirty(PhyloNode* node, int radius, const vector<bool>& dirty) {
     if (dirty[node->id]) return true;
@@ -541,6 +539,7 @@ static vector<SPRCandidate> selectMoves(vector<SPRCandidate>& candidates, int ma
 
 struct DFSContext {
     const SPRSourceState* state;
+    Fitch* fitch;
     PhyloNode* src;
     PhyloNode* src_parent;
     PhyloNode* sibling1;
@@ -550,28 +549,58 @@ struct DFSContext {
     vector<int>* dfs_visited_ids;
     int radius;
     int* moves_evaluated;
+    int* moves_pruned;
+    int best_delta;
+    const nuc_one_hot* src_states;
 };
 
-static void searchDestinations(const DFSContext& ctx, PhyloNode* node, PhyloNode* from, int dist) {
+static int computeSubtreeBound(const DFSContext& ctx, PhyloNode* node, int parent_delta) {
+    const vector<int>* diffs = ctx.fitch->getFitchDiffs(node);
+    if (!diffs || diffs->empty()) return parent_delta;
+
+    int max_improvement = 0;
+    const nuc_one_hot* node_states = ctx.fitch->getMajorArrayForNode(node);
+    for (int ptn : *diffs) {
+        if (ctx.src_states[ptn] & node_states[ptn])
+            max_improvement += ctx.fitch->getPatternFreq(ptn);
+    }
+    return parent_delta - max_improvement;
+}
+
+static void searchDestinations(const DFSContext& ctx, PhyloNode* node, PhyloNode* from, int dist, int parent_delta) {
     if ((*ctx.dfs_visited)[node->id]) return;
     (*ctx.dfs_visited)[node->id] = true;
     ctx.dfs_visited_ids->push_back(node->id);
 
+    int current_delta = 0;
+    bool evaluated = false;
+
     if (from != ctx.src_parent && from != ctx.src && node != ctx.src && node != ctx.src_parent) {
-        int delta = ctx.state->evaluate(node, from);
+        current_delta = ctx.state->evaluate(node, from);
         (*ctx.moves_evaluated)++;
-        if (delta < 0)
-            ctx.candidates->push_back({ctx.src, ctx.src_parent, ctx.sibling1, ctx.sibling2, node, from, delta});
+        evaluated = true;
+        if (current_delta < 0)
+            ctx.candidates->push_back({ctx.src, ctx.src_parent, ctx.sibling1, ctx.sibling2, node, from, current_delta});
     }
 
     if (ctx.radius > 0 && dist >= ctx.radius) return;
+
+    int delta_for_bound = evaluated ? current_delta : parent_delta;
+
     FOR_NEIGHBOR_IT(node, nullptr, nit) {
         PhyloNode* next = (PhyloNode*)(*nit)->node;
-        if (!(*ctx.dfs_visited)[next->id]) searchDestinations(ctx, next, node, dist + 1);
+        if ((*ctx.dfs_visited)[next->id]) continue;
+
+        int child_bound = computeSubtreeBound(ctx, next, delta_for_bound);
+        if (child_bound >= 0) {
+            (*ctx.moves_pruned)++;
+            continue;
+        }
+
+        searchDestinations(ctx, next, node, dist + 1, delta_for_bound);
     }
 }
 
-// Phase 2.1: Collect dirty nodes from selected SPR moves for incremental recompute
 static set<PhyloNode*> collectDirtyNodes(const vector<SPRCandidate>& moves) {
     set<PhyloNode*> dirty;
     for (const auto& m : moves) {
@@ -590,9 +619,6 @@ int SPROptimizer::optimizeAtRadius(int radius, Fitch& fitch) {
     int initial_score = cur_score;
     int max_id = fitch.getMaxNodeId();
 
-    // Phase 1.2: Orient/depths assumed done by caller (optimizeTree) or previous round.
-    // Only re-orient after applying moves within a round.
-
     string radius_str = (radius == 0) ? "unbounded" : to_string(radius);
     cout << "=== Batch SPR (radius " << radius_str << ") ===" << endl;
     cout << "  Starting score: " << cur_score << endl;
@@ -601,13 +627,11 @@ int SPROptimizer::optimizeAtRadius(int radius, Fitch& fitch) {
     bool has_dirty = false;
     int dirty_check_radius = (radius == 0) ? 32 : radius;
 
-    // Phase 2.2: Persistent BFS visited buffer — only resize if needed, don't re-initialize
     if ((int)s_bfs_visited.size() < max_id + 1) {
         s_bfs_visited.assign(max_id + 1, false);
         s_bfs_visited_ids.reserve(max_id + 1);
     }
 
-    // Reusable DFS visited buffer
     vector<bool> dfs_visited(max_id + 1, false);
     vector<int> dfs_visited_ids;
     dfs_visited_ids.reserve(max_id + 1);
@@ -617,7 +641,7 @@ int SPROptimizer::optimizeAtRadius(int radius, Fitch& fitch) {
     for (int round = 0; round < MAX_ROUNDS_PER_RADIUS; round++) {
         auto start_time = high_resolution_clock::now();
         vector<SPRCandidate> candidates;
-        int moves_evaluated = 0, src_skipped = 0;
+        int moves_evaluated = 0, src_skipped = 0, moves_pruned = 0;
 
         for (PhyloNode* src : all_nodes) {
             if (src == tree->root || src->degree() < 2) continue;
@@ -641,17 +665,17 @@ int SPROptimizer::optimizeAtRadius(int radius, Fitch& fitch) {
             SPRSourceState state(&fitch, src, src_parent);
             if (!state.isValid()) continue;
 
-            // Reset DFS visited for this source
             for (int id : dfs_visited_ids) dfs_visited[id] = false;
             dfs_visited_ids.clear();
             dfs_visited[src->id] = true;          dfs_visited_ids.push_back(src->id);
             dfs_visited[src_parent->id] = true;   dfs_visited_ids.push_back(src_parent->id);
 
-            DFSContext dfs_ctx = {&state, src, src_parent, sibling1, sibling2,
+            DFSContext dfs_ctx = {&state, &fitch, src, src_parent, sibling1, sibling2,
                                   &candidates, &dfs_visited, &dfs_visited_ids,
-                                  radius, &moves_evaluated};
-            searchDestinations(dfs_ctx, sibling1, src_parent, 0);
-            searchDestinations(dfs_ctx, sibling2, src_parent, 0);
+                                  radius, &moves_evaluated, &moves_pruned,
+                                  0, fitch.getMajorArrayForNode(src)};
+            searchDestinations(dfs_ctx, sibling1, src_parent, 0, 0);
+            searchDestinations(dfs_ctx, sibling2, src_parent, 0, 0);
         }
 
         long long elapsed = duration_cast<milliseconds>(high_resolution_clock::now() - start_time).count();
@@ -659,6 +683,7 @@ int SPROptimizer::optimizeAtRadius(int radius, Fitch& fitch) {
         if (candidates.empty()) {
             cout << "  Round " << round + 1 << ": no improving moves ("
                  << moves_evaluated << " eval";
+            if (moves_pruned > 0) cout << ", " << moves_pruned << " pruned";
             if (src_skipped > 0) cout << ", " << src_skipped << " skip";
             cout << ", " << elapsed << "ms)" << endl << flush;
             break;
@@ -679,7 +704,6 @@ int SPROptimizer::optimizeAtRadius(int radius, Fitch& fitch) {
         for (const auto& move : selected)
             { applySPRMove(move.src_parent, move.sibling1, move.sibling2, move.dst, move.dst_parent); expected += move.delta; }
 
-        // Phase 2.1: Use dirty recompute — only recompute affected nodes O(D×P)
         set<PhyloNode*> dirty_set = collectDirtyNodes(selected);
         int new_score = fitch.recomputeScoreDirty(dirty_set);
 
@@ -687,6 +711,7 @@ int SPROptimizer::optimizeAtRadius(int radius, Fitch& fitch) {
              << selected.size() << " applied (exp=" << expected
              << " act=" << (new_score - cur_score) << ") -> " << new_score
              << " (" << moves_evaluated << " eval";
+        if (moves_pruned > 0) cout << ", " << moves_pruned << " pruned";
         if (src_skipped > 0) cout << ", " << src_skipped << " skip";
         cout << ", " << elapsed << "ms)" << endl << flush;
 
@@ -699,7 +724,6 @@ int SPROptimizer::optimizeAtRadius(int radius, Fitch& fitch) {
             break;
         }
 
-        // Score improved: update fitch diffs and re-orient for next round
         fitch.updateFitchDiffs();
         orientTreeToRoot(tree, max_id);
         SPRDeltaExact::precomputeDepths(tree);
@@ -729,12 +753,10 @@ int SPROptimizer::optimizeTree(int max_passes, int max_radius) {
         int start = fitch.recomputeWithDiffs();
         SPRDeltaExact::setCustomFitch(&fitch, start);
 
-        // Phase 1.2: Orient tree once per pass (not per radius)
         int max_id = fitch.getMaxNodeId();
         orientTreeToRoot(tree, max_id);
         SPRDeltaExact::precomputeDepths(tree);
 
-        // Try doubling radii: 1, 2, 4, 8, 16, 32, ...
         for (int r = 1; ; r *= 2) {
             r = min(r, max_radius);
             optimizeAtRadius(r, fitch);
