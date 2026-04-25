@@ -799,7 +799,7 @@ void parseArg(int argc, char *argv[], Params &params) {
     params.spr_max_iterations = 1000; // Maximum optimization iterations
     params.spr_min_improvement = 0.0005; // Convergence threshold: 0.05%
     params.spr_drift_iterations = 0; // Drift iterations (0 = disabled)
-    params.spr_max_passes = 1;       // Default: 1 pass over all radii
+    params.spr_max_passes = 10;      // Default: up to 10 passes (stops early on convergence)
     params.spr_max_radius = 32;      // Default: max radius 32 (0=unbounded)
     params.test_site_pars = false;
     params.auto_vectorize = false;

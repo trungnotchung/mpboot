@@ -169,12 +169,16 @@ void placeNewSamplesOntoExistingTree(Params &params) {
 	} else if (params.spr_optimize) {
 		cout << "\n========== Starting post-placement SPR optimization ==========\n";
 		auto spr_start_time = getCPUTime();
+		auto spr_wall_start = std::chrono::high_resolution_clock::now();
 
 		SPROptimizer optimizer(tree);
-		int best_score = optimizer.optimizeTree(params.spr_max_passes, params.spr_max_radius);
+		int best_score = optimizer.optimizeTree(params.spr_max_passes, params.spr_max_radius, params.spr_drift_iterations);
 
+		double wall_secs = std::chrono::duration<double>(
+			std::chrono::high_resolution_clock::now() - spr_wall_start).count();
 		cout << "SPR optimization time: " << fixed << setprecision(3)
-		     << (double)(getCPUTime() - spr_start_time) << " seconds\n";
+		     << wall_secs << " seconds (wall), "
+		     << (double)(getCPUTime() - spr_start_time) << " seconds (cpu)\n";
 		cout << "Final parsimony score after SPR: " << best_score << '\n';
 		tree->deleteAllPartialLh();
 		cout << "Final parsimony score computed by fitch: " << tree->computeParsimony() << '\n';

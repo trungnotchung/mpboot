@@ -130,6 +130,55 @@ void Fitch::computeFitchDiffs() {
     }
 }
 
+void Fitch::updateFitchDiffsDirty(const std::set<PhyloNode*>& dirty_nodes) {
+    fitch_diffs.resize(num_nodes);
+
+    // Collect nodes that need diff recomputation:
+    // Any dirty node, plus all children of dirty nodes (since their diffs depend on parent's major)
+    std::set<PhyloNode*> needs_update;
+    PhyloNode* root = (PhyloNode*)tree->root;
+
+    for (PhyloNode* node : dirty_nodes) {
+        needs_update.insert(node);
+        // Also update all neighbors' diffs (children's diffs depend on this node's major)
+        FOR_NEIGHBOR_IT(node, nullptr, it) {
+            needs_update.insert((PhyloNode*)(*it)->node);
+        }
+    }
+
+    // Recompute diffs only for affected nodes
+    for (PhyloNode* node : needs_update) {
+        int node_idx = getIdx(node);
+        if (node_idx < 0) continue;
+
+        if (node == root) {
+            // Root has no parent, diffs are empty
+            fitch_diffs[node_idx].clear();
+            continue;
+        }
+
+        // Find parent: for root's immediate neighbor, parent is root
+        // For others, parent is neighbors[0]->node (oriented tree)
+        PhyloNode* parent;
+        if (node == (PhyloNode*)root->neighbors[0]->node) {
+            parent = root;
+        } else {
+            parent = (PhyloNode*)node->neighbors[0]->node;
+        }
+
+        int par_idx = getIdx(parent);
+        if (par_idx < 0) continue;
+
+        const nuc_one_hot* node_arr = majorAt(node_idx);
+        const nuc_one_hot* par_arr = majorAt(par_idx);
+        auto& diffs = fitch_diffs[node_idx];
+        diffs.clear();
+        for (int p = 0; p < nptn; p++) {
+            if (node_arr[p] != par_arr[p]) diffs.push_back(p);
+        }
+    }
+}
+
 int Fitch::bottomUp(PhyloNode* node, PhyloNode* parent) {
     int idx = getIdx(node);
     nuc_one_hot* my_major = majorAt(idx);
@@ -379,6 +428,102 @@ int Fitch::run() {
     computeFitchDiffs();
 
     cout << "Fitch: score=" << total_score << " patterns=" << nptn
+         << " nodes=" << num_nodes << endl;
+
+    return total_score;
+}
+
+int Fitch::runForSPR() {
+    assert(tree->root != nullptr);
+    assert(tree->root->isLeaf());
+
+    nptn = tree->aln->size();
+
+    {
+        int idx = 0;
+        max_node_id = 0;
+        queue<PhyloNode*> q;
+        set<PhyloNode*> visited;
+        q.push((PhyloNode*)tree->root);
+        vector<PhyloNode*> bfs_order;
+        while (!q.empty()) {
+            PhyloNode* n = q.front(); q.pop();
+            if (visited.count(n)) continue;
+            visited.insert(n);
+            bfs_order.push_back(n);
+            if (n->id > max_node_id) max_node_id = n->id;
+            idx++;
+            FOR_NEIGHBOR_IT(n, nullptr, it)
+                if (!visited.count((PhyloNode*)(*it)->node))
+                    q.push((PhyloNode*)(*it)->node);
+        }
+        set<int> used_ids;
+        for (PhyloNode* n : bfs_order) {
+            if (n->isLeaf() && n->id >= 0) {
+                used_ids.insert(n->id);
+            }
+        }
+        int next_id = max_node_id + 1;
+        for (PhyloNode* n : bfs_order) {
+            if (n->id < 0 || (!n->isLeaf() && used_ids.count(n->id))) {
+                while (used_ids.count(next_id)) next_id++;
+                n->id = next_id++;
+            }
+            used_ids.insert(n->id);
+            if (n->id > max_node_id) max_node_id = n->id;
+        }
+        max_node_id = next_id - 1;
+        num_nodes = idx;
+        node_index.assign(max_node_id + 1, -1);
+        idx = 0;
+        for (PhyloNode* n : bfs_order) {
+            node_index[n->id] = idx++;
+        }
+    }
+
+    node_major.assign((size_t)num_nodes * nptn, 0);
+    node_penalty.assign(num_nodes, 0);
+    subtree_score.assign(num_nodes, 0);
+
+    ptn_freq.resize(nptn);
+    ptn_is_const.resize(nptn);
+    ptn_position.resize(nptn);
+    for (int ptn = 0; ptn < nptn; ptn++) {
+        ptn_freq[ptn] = tree->aln->at(ptn).frequency;
+        ptn_is_const[ptn] = tree->aln->at(ptn).is_const;
+    }
+
+    // Skip buildPatternToSites — not needed for SPR evaluation
+
+    PhyloNode* root = (PhyloNode*)tree->root;
+    PhyloNode* root_neighbor = (PhyloNode*)root->neighbors[0]->node;
+
+    int root_idx = getIdx(root);
+    nuc_one_hot* root_major = majorAt(root_idx);
+    for (int ptn = 0; ptn < nptn; ptn++) {
+        int state = (tree->aln->at(ptn))[root->id];
+        root_major[ptn] = (nuc_one_hot)(dna_state_map[state] & 0xF);
+    }
+
+    int st_score = bottomUp(root_neighbor, root);
+
+    int root_edge_score = 0;
+    int rn_idx = getIdx(root_neighbor);
+    const nuc_one_hot* rn_major = majorAt(rn_idx);
+    for (int ptn = 0; ptn < nptn; ptn++) {
+        if ((root_major[ptn] & rn_major[ptn]) == 0) {
+            root_edge_score += tree->aln->at(ptn).frequency;
+        }
+    }
+
+    int total_score = st_score + root_edge_score;
+
+    // Skip topDown — no mutations needed for SPR
+    // Skip root_side_mutation_count
+
+    computeFitchDiffs();
+
+    cout << "Fitch (SPR init): score=" << total_score << " patterns=" << nptn
          << " nodes=" << num_nodes << endl;
 
     return total_score;

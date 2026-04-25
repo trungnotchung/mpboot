@@ -17,6 +17,9 @@ public:
     // Full Fitch: reads alignment, populates mutations, returns parsimony score.
     int run();
 
+    // Like run() but skips topDown/mutation generation. For SPR optimization.
+    int runForSPR();
+
     // Recompute after topology change (no alignment access). Must call run() first.
     int recompute();
 
@@ -28,6 +31,9 @@ public:
 
     // Update fitch diffs only (must have valid node_major from prior recompute)
     void updateFitchDiffs() { computeFitchDiffs(); }
+
+    // Incremental: only recompute diffs for nodes in dirty set and their neighbors
+    void updateFitchDiffsDirty(const std::set<PhyloNode*>& dirty_nodes);
 
     int countMutations() const;
 

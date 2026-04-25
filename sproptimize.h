@@ -16,10 +16,11 @@ public:
     ~SPROptimizer();
 
     /** Run full optimization. Returns final parsimony score. */
-    int optimizeTree(int max_passes = 1, int max_radius = 32);
+    int optimizeTree(int max_passes = 10, int max_radius = 32, int drift_iters = 0);
 
-    /** Run SPR rounds at a given radius. Returns score after optimization. */
-    int optimizeAtRadius(int radius, Fitch& fitch);
+    /** Run SPR rounds at a given radius. Returns score after optimization.
+     *  If known_score > 0, skips the initial recompute (caller guarantees fitch state is valid). */
+    int optimizeAtRadius(int radius, Fitch& fitch, bool allow_drift = false, int known_score = 0);
 
 private:
     PhyloTree* tree;
