@@ -22,6 +22,8 @@
 
 //#define EIGEN_TUNE_FOR_CPU_CACHE_SIZE (512*256)
 //#define EIGEN_TUNE_FOR_CPU_CACHE_SIZE (8*512*512)
+#include <set>
+#include <vector>
 #include "Eigen/Core"
 #include "mtree.h"
 #include "alignment.h"
@@ -248,6 +250,36 @@ void precomputeFitchInfo();
 
 // Forward declarations
 class SPROptimizer;
+
+class LCATable {
+public:
+    void build(class PhyloTree* tree, class PhyloNode* root);
+    bool isReady() const { return ready; }
+    int getDepth(int node_id) const {
+        return (node_id >= 0 && node_id < (int)node_depth.size()) ? node_depth[node_id] : -1;
+    }
+    bool hasFirstAppearance(int node_id) const {
+        return node_id >= 0 && node_id < (int)first_appearance.size()
+               && first_appearance[node_id] >= 0;
+    }
+    int firstAppearance(int node_id) const { return first_appearance[node_id]; }
+    class PhyloNode* eulerNodeAt(int idx) const { return euler[idx]; }
+    int rmq(int l, int r) const;
+    bool nodeDepthEmpty() const { return node_depth.empty(); }
+    void reset();
+
+private:
+    std::vector<int> node_depth;
+    std::vector<class PhyloNode*> euler;
+    std::vector<int> euler_depth;
+    std::vector<int> first_appearance;
+    std::vector<std::vector<int>> sparse_table;
+    std::vector<int> log2_table;
+    bool ready = false;
+
+    void eulerTourDFS(class PhyloNode* root, int max_id);
+    void buildSparseTable();
+};
 
 /**
 Phylogenetic Tree class
@@ -1534,6 +1566,62 @@ public:
 
     void approxAllBranches(PhyloNode *node = NULL, PhyloNode *dad = NULL);
 
+    // === Byte-per-pattern Fitch parsimony (used by SPR optimization) ===
+    // Complementary to partial_pars (the bitvector path used by computeParsimony).
+    // Optimised for per-(node, ptn) random access in the O(M) sparse SPR delta.
+
+    int  fitchRun();
+    int  fitchRunForSPR();
+    int  fitchRecompute();
+    int  fitchRecomputeScore();
+    int  fitchRecomputeWithDiffs();
+    int  fitchRecomputeScoreDirty(const std::set<PhyloNode*>& force_dirty);
+    int  fitchRecomputeScoreDirtyAndRestore(const std::set<PhyloNode*>& force_dirty);
+    void fitchUpdateDiffs() { fitchComputeDiffs(); }
+    void fitchUpdateDiffsDirty(const std::set<PhyloNode*>& dirty_nodes);
+    int  fitchCountMutations() const;
+    void fitchBuildPatternPositionMap();
+    int  fitchMaxNodeId() const { return fitch_max_node_id; }
+    const std::vector<nuc_one_hot>& fitchNodeMajor() const { return fitch_node_major; }
+    const std::vector<std::vector<int>>& fitchPatternToSites() const { return fitch_pattern_to_sites; }
+    std::vector<nuc_one_hot> fitchSaveNodeMajor() const { return fitch_node_major; }
+    void fitchRestoreNodeMajor(const std::vector<nuc_one_hot>& saved) { fitch_node_major = saved; }
+
+    inline int fitchNodeIdx(PhyloNode* node) const {
+        if (node->id < 0 || node->id >= (int)fitch_node_index.size()) return -1;
+        return fitch_node_index[node->id];
+    }
+    inline const nuc_one_hot* fitchMajorArrayFor(PhyloNode* node) const {
+        int idx = fitchNodeIdx(node);
+        if (idx < 0) return NULL;
+        return &fitch_node_major[(size_t)idx * fitch_nptn];
+    }
+    inline nuc_one_hot fitchMajorFor(PhyloNode* node, int ptn) const {
+        int idx = fitchNodeIdx(node);
+        if (idx < 0) return 0;
+        return fitch_node_major[(size_t)idx * fitch_nptn + ptn];
+    }
+    inline const std::vector<int>* fitchDiffsFor(PhyloNode* node) const {
+        int idx = fitchNodeIdx(node);
+        if (idx < 0) return NULL;
+        return &fitch_diffs[idx];
+    }
+    inline int fitchPatternFreq(int ptn) const { return fitch_ptn_freq[ptn]; }
+    inline int fitchPositionForPattern(int ptn) const { return fitch_ptn_position[ptn]; }
+    inline int fitchNumPatterns() const { return fitch_nptn; }
+
+    // === LCA query (Euler-tour + sparse-table for O(1) queries) ===
+    void buildLCATable();
+    PhyloNode* findLCA(PhyloNode* a, PhyloNode* b) const;
+    const LCATable& getLCATable() const { return lca_table; }
+
+    // After orientTreeToRoot(), neighbors[0] points toward parent. Returns nullptr
+    // for the root or for a null/empty-neighbors node.
+    inline PhyloNode* getParentOriented(PhyloNode* node) const {
+        if (!node || node == (PhyloNode*)root || node->neighbors.empty()) return nullptr;
+        return (PhyloNode*)node->neighbors[0]->node;
+    }
+
 protected:
 
     /**
@@ -1552,6 +1640,51 @@ protected:
 
     /** distance (# of branches) between 2 nodes */
     int *nodeBranchDists;
+
+    LCATable lca_table;
+
+    // === Byte-per-pattern Fitch parsimony state ===
+    std::vector<nuc_one_hot> fitch_node_major;
+    std::vector<int>         fitch_node_index;
+    int                      fitch_max_node_id;
+    int                      fitch_num_nodes;
+    int                      fitch_nptn;
+    int                      fitch_root_side_mutation_count;
+    std::vector<std::vector<int>> fitch_pattern_to_sites;
+    std::vector<int>         fitch_ptn_freq;
+    std::vector<bool>        fitch_ptn_is_const;
+    std::vector<int>         fitch_ptn_position;
+    std::vector<int>         fitch_node_penalty;
+    std::vector<int>         fitch_subtree_score;
+    std::vector<std::vector<int>> fitch_diffs;
+
+    struct FitchDirtyNodeSave {
+        int idx;
+        std::vector<nuc_one_hot> major;
+        int penalty;
+        int sub_score;
+    };
+
+    int  fitchBottomUp(PhyloNode* node, PhyloNode* parent);
+    int  fitchLocalBottomUp(PhyloNode* node, PhyloNode* parent);
+    int  fitchLocalBottomUpDirty(PhyloNode* node, PhyloNode* parent,
+                                 bool& changed,
+                                 std::vector<FitchDirtyNodeSave>* dirty_saved,
+                                 const std::set<PhyloNode*>* force_dirty);
+    void fitchTopDown(PhyloNode* node, PhyloNode* parent,
+                      const std::vector<nuc_one_hot>& parent_states);
+    void fitchBuildPatternToSites();
+    void fitchComputeDiffs();
+    static nuc_one_hot fitchChooseRepresentative(nuc_one_hot state_set);
+    inline nuc_one_hot* fitchMajorAt(int idx) {
+        return &fitch_node_major[(size_t)idx * fitch_nptn];
+    }
+    inline const nuc_one_hot* fitchMajorAt(int idx) const {
+        return &fitch_node_major[(size_t)idx * fitch_nptn];
+    }
+    inline int fitchGetIdx(PhyloNode* node) const {
+        return fitch_node_index[node->id];
+    }
 
     /**
      * A list containing all the marked list. This is used in the dynamic programming

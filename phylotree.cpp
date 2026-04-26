@@ -15,6 +15,7 @@
 //#include "rateheterogeneity.h"
 #include "alignmentpairwise.h"
 #include <algorithm>
+#include <queue>
 #include <limits>
 #include "timeutil.h"
 #include "nnisearch.h"
@@ -89,6 +90,10 @@ void PhyloTree::init() {
     save_all_trees = 0;
     mlCheck = 0; // FOR: upper bounds
     nodeBranchDists = NULL;
+    fitch_max_node_id = 0;
+    fitch_num_nodes = 0;
+    fitch_nptn = 0;
+    fitch_root_side_mutation_count = 0;
 }
 
 PhyloTree::PhyloTree(Alignment *aln) : MTree() {
@@ -6032,4 +6037,942 @@ void PhyloTree::verifyMutationCorrectness() {
 	verifyMutationCorrectnessBranch(position, (PhyloNeighbor *)root->neighbors[0], (PhyloNode *)root);
 	cout << "Compute mutation correctly\n";
 	cout << "========== End checking mutations ==========\n";
+}
+/****************************************************************************
+ Byte-per-pattern Fitch parsimony
+ ****************************************************************************/
+nuc_one_hot PhyloTree::fitchChooseRepresentative(nuc_one_hot state_set) {
+    if (state_set & 0x1) return 0x1;
+    if (state_set & 0x2) return 0x2;
+    if (state_set & 0x4) return 0x4;
+    if (state_set & 0x8) return 0x8;
+    return 0xF;
+}
+
+void PhyloTree::fitchBuildPatternPositionMap() {
+    std::fill(fitch_ptn_position.begin(), fitch_ptn_position.end(), -1);
+    std::set<PhyloNode*> visited;
+    std::queue<PhyloNode*> q;
+    q.push((PhyloNode*)root);
+    while (!q.empty()) {
+        PhyloNode* n = q.front(); q.pop();
+        if (visited.count(n)) continue;
+        visited.insert(n);
+        for (auto it = n->neighbors.begin(); it != n->neighbors.end(); ++it) {
+            PhyloNeighbor* nei = (PhyloNeighbor*)*it;
+            PhyloNode* other = (PhyloNode*)nei->node;
+            for (const Mutation& m : nei->mutations) {
+                if (m.is_valid() && m.compressed_position >= 0 && m.compressed_position < fitch_nptn) {
+                    fitch_ptn_position[m.compressed_position] = m.position;
+                }
+            }
+            if (!visited.count(other)) q.push(other);
+        }
+    }
+}
+
+void PhyloTree::fitchBuildPatternToSites() {
+    int nsites = aln->getNSite();
+    fitch_pattern_to_sites.resize(fitch_nptn);
+    for (int site = 0; site < nsites; site++) {
+        int ptn = aln->getPatternID(site);
+        fitch_pattern_to_sites[ptn].push_back(site);
+    }
+}
+
+static void fillFitchDiffsRecursive(PhyloNode* node, PhyloNode* parent,
+                                     PhyloTree* tree,
+                                     std::vector<std::vector<int>>& fitch_diffs) {
+    int node_idx = tree->fitchNodeIdx(node);
+    int par_idx = tree->fitchNodeIdx(parent);
+    if (node_idx < 0 || par_idx < 0) return;
+    int nptn = tree->fitchNumPatterns();
+    const nuc_one_hot* node_arr = tree->fitchMajorArrayFor(node);
+    const nuc_one_hot* par_arr = tree->fitchMajorArrayFor(parent);
+
+    auto& diffs = fitch_diffs[node_idx];
+    diffs.clear();
+    for (int p = 0; p < nptn; p++) {
+        if (node_arr[p] != par_arr[p]) diffs.push_back(p);
+    }
+    FOR_NEIGHBOR_IT(node, parent, nit) {
+        fillFitchDiffsRecursive((PhyloNode*)(*nit)->node, node, tree, fitch_diffs);
+    }
+}
+
+void PhyloTree::fitchComputeDiffs() {
+    fitch_diffs.resize(fitch_num_nodes);
+
+    PhyloNode* r = (PhyloNode*)root;
+    PhyloNode* root_neighbor = (PhyloNode*)r->neighbors[0]->node;
+
+    fitch_diffs[fitchGetIdx(r)].clear();
+
+    {
+        int root_nei_idx = fitchGetIdx(root_neighbor);
+        int root_idx = fitchGetIdx(r);
+        const nuc_one_hot* root_nei_arr = fitchMajorAt(root_nei_idx);
+        const nuc_one_hot* root_arr = fitchMajorAt(root_idx);
+        auto& diffs = fitch_diffs[root_nei_idx];
+        diffs.clear();
+        for (int p = 0; p < fitch_nptn; p++) {
+            if (root_nei_arr[p] != root_arr[p]) diffs.push_back(p);
+        }
+    }
+
+    FOR_NEIGHBOR_IT(root_neighbor, r, it) {
+        fillFitchDiffsRecursive((PhyloNode*)(*it)->node, root_neighbor, this, fitch_diffs);
+    }
+}
+
+void PhyloTree::fitchUpdateDiffsDirty(const std::set<PhyloNode*>& dirty_nodes) {
+    fitch_diffs.resize(fitch_num_nodes);
+
+    std::set<PhyloNode*> needs_update;
+    PhyloNode* r = (PhyloNode*)root;
+
+    for (PhyloNode* node : dirty_nodes) {
+        needs_update.insert(node);
+        FOR_NEIGHBOR_IT(node, nullptr, it) {
+            needs_update.insert((PhyloNode*)(*it)->node);
+        }
+    }
+
+    for (PhyloNode* node : needs_update) {
+        int node_idx = fitchGetIdx(node);
+        if (node_idx < 0) continue;
+
+        if (node == r) {
+            fitch_diffs[node_idx].clear();
+            continue;
+        }
+
+        PhyloNode* parent;
+        if (node == (PhyloNode*)r->neighbors[0]->node) {
+            parent = r;
+        } else {
+            parent = (PhyloNode*)node->neighbors[0]->node;
+        }
+
+        int par_idx = fitchGetIdx(parent);
+        if (par_idx < 0) continue;
+
+        const nuc_one_hot* node_arr = fitchMajorAt(node_idx);
+        const nuc_one_hot* par_arr = fitchMajorAt(par_idx);
+        auto& diffs = fitch_diffs[node_idx];
+        diffs.clear();
+        for (int p = 0; p < fitch_nptn; p++) {
+            if (node_arr[p] != par_arr[p]) diffs.push_back(p);
+        }
+    }
+}
+
+int PhyloTree::fitchBottomUp(PhyloNode* node, PhyloNode* parent) {
+    int idx = fitchGetIdx(node);
+    nuc_one_hot* my_major = fitchMajorAt(idx);
+
+    if (node->isLeaf()) {
+        for (int ptn = 0; ptn < fitch_nptn; ptn++) {
+            int state = (aln->at(ptn))[node->id];
+            my_major[ptn] = (nuc_one_hot)(dna_state_map[state] & 0xF);
+        }
+        fitch_node_penalty[idx] = 0;
+        fitch_subtree_score[idx] = 0;
+        return 0;
+    }
+
+    PhyloNode* child0 = nullptr;
+    PhyloNode* child1 = nullptr;
+    FOR_NEIGHBOR_IT(node, parent, it) {
+        if (!child0) child0 = (PhyloNode*)(*it)->node;
+        else child1 = (PhyloNode*)(*it)->node;
+    }
+    assert(child0 && child1);
+
+    int children_score = fitchBottomUp(child0, node) + fitchBottomUp(child1, node);
+
+    const nuc_one_hot* c0 = fitchMajorAt(fitchGetIdx(child0));
+    const nuc_one_hot* c1 = fitchMajorAt(fitchGetIdx(child1));
+
+    int my_penalty = 0;
+    for (int ptn = 0; ptn < fitch_nptn; ptn++) {
+        nuc_one_hot intersect = c0[ptn] & c1[ptn];
+        if (intersect != 0) {
+            my_major[ptn] = intersect;
+        } else {
+            my_major[ptn] = c0[ptn] | c1[ptn];
+            my_penalty += fitch_ptn_freq[ptn];
+        }
+    }
+
+    fitch_node_penalty[idx] = my_penalty;
+    fitch_subtree_score[idx] = children_score + my_penalty;
+    return children_score + my_penalty;
+}
+
+void PhyloTree::fitchTopDown(PhyloNode* node, PhyloNode* parent,
+                             const vector<nuc_one_hot>& parent_states) {
+    int idx = fitchGetIdx(node);
+    const nuc_one_hot* my_major = fitchMajorAt(idx);
+
+    vector<nuc_one_hot> my_states(fitch_nptn);
+    for (int ptn = 0; ptn < fitch_nptn; ptn++) {
+        nuc_one_hot major = my_major[ptn];
+        if (!parent_states.empty() && (parent_states[ptn] & major)) {
+            my_states[ptn] = parent_states[ptn];
+        } else {
+            my_states[ptn] = fitchChooseRepresentative(major);
+        }
+    }
+
+    const nuc_one_hot* ch0_major = nullptr;
+    const nuc_one_hot* ch1_major = nullptr;
+    if (!node->isLeaf()) {
+        PhyloNode* ch0 = nullptr;
+        PhyloNode* ch1 = nullptr;
+        FOR_NEIGHBOR_IT(node, parent, child_it) {
+            if (!ch0) ch0 = (PhyloNode*)(*child_it)->node;
+            else ch1 = (PhyloNode*)(*child_it)->node;
+        }
+        if (ch0) ch0_major = fitchMajorAt(fitchGetIdx(ch0));
+        if (ch1) ch1_major = fitchMajorAt(fitchGetIdx(ch1));
+    }
+
+    if (parent != nullptr) {
+        PhyloNeighbor* edge_to_node = (PhyloNeighbor*)parent->findNeighbor(node);
+        PhyloNeighbor* edge_to_parent = (PhyloNeighbor*)node->findNeighbor(parent);
+
+        if (edge_to_node) edge_to_node->mutations.clear();
+        if (edge_to_parent) edge_to_parent->mutations.clear();
+
+        for (int ptn = 0; ptn < fitch_nptn; ptn++) {
+            if (my_states[ptn] == parent_states[ptn]) continue;
+            if (fitch_ptn_is_const[ptn]) continue;
+
+            nuc_one_hot boundary1 = 0;
+            if (ch0_major && ch1_major) {
+                nuc_one_hot inter = ch0_major[ptn] & ch1_major[ptn];
+                if (inter != 0) {
+                    boundary1 = (ch0_major[ptn] | ch1_major[ptn]) & ~inter;
+                } else {
+                    boundary1 = (~(ch0_major[ptn] | ch1_major[ptn])) & 0xF;
+                }
+            }
+
+            for (int site : fitch_pattern_to_sites[ptn]) {
+                Mutation mut;
+                mut.position = site;
+                mut.compressed_position = ptn;
+                mut.par_one_hot = parent_states[ptn];
+                mut.mut_one_hot = my_states[ptn];
+                mut.par_nuc = one_hot_to_char(parent_states[ptn]);
+                mut.mut_nuc = one_hot_to_char(my_states[ptn]);
+                mut.ref_nuc = mut.par_nuc;
+                mut.is_missing = false;
+                mut.major_allele_set = my_major[ptn];
+                mut.boundary1_allele = boundary1;
+
+                if (edge_to_node) edge_to_node->mutations.push_back(mut);
+                if (edge_to_parent) edge_to_parent->mutations.push_back(mut);
+            }
+        }
+
+        if (edge_to_node && !edge_to_node->mutations.empty())
+            sort(edge_to_node->mutations.begin(), edge_to_node->mutations.end());
+        if (edge_to_parent && !edge_to_parent->mutations.empty())
+            sort(edge_to_parent->mutations.begin(), edge_to_parent->mutations.end());
+    }
+
+    FOR_NEIGHBOR_IT(node, parent, it) {
+        PhyloNode* child = (PhyloNode*)(*it)->node;
+        fitchTopDown(child, node, my_states);
+    }
+}
+
+static void fitchAssignNodeIndices(PhyloTree* tree,
+                                    int& fitch_max_node_id,
+                                    int& fitch_num_nodes,
+                                    std::vector<int>& fitch_node_index) {
+    int idx = 0;
+    fitch_max_node_id = 0;
+    queue<PhyloNode*> q;
+    set<PhyloNode*> visited;
+    q.push((PhyloNode*)tree->root);
+    vector<PhyloNode*> bfs_order;
+    while (!q.empty()) {
+        PhyloNode* n = q.front(); q.pop();
+        if (visited.count(n)) continue;
+        visited.insert(n);
+        bfs_order.push_back(n);
+        if (n->id > fitch_max_node_id) fitch_max_node_id = n->id;
+        idx++;
+        FOR_NEIGHBOR_IT(n, nullptr, it)
+            if (!visited.count((PhyloNode*)(*it)->node))
+                q.push((PhyloNode*)(*it)->node);
+    }
+    set<int> used_ids;
+    for (PhyloNode* n : bfs_order) {
+        if (n->isLeaf() && n->id >= 0) {
+            used_ids.insert(n->id);
+        }
+    }
+    int next_id = fitch_max_node_id + 1;
+    for (PhyloNode* n : bfs_order) {
+        if (n->id < 0 || (!n->isLeaf() && used_ids.count(n->id))) {
+            while (used_ids.count(next_id)) next_id++;
+            n->id = next_id++;
+        }
+        used_ids.insert(n->id);
+        if (n->id > fitch_max_node_id) fitch_max_node_id = n->id;
+    }
+    fitch_max_node_id = next_id - 1;
+    fitch_num_nodes = idx;
+    fitch_node_index.assign(fitch_max_node_id + 1, -1);
+    idx = 0;
+    for (PhyloNode* n : bfs_order) {
+        fitch_node_index[n->id] = idx++;
+    }
+}
+
+int PhyloTree::fitchRun() {
+    assert(root != nullptr);
+    assert(root->isLeaf());
+
+    fitch_nptn = aln->size();
+
+    fitchAssignNodeIndices(this, fitch_max_node_id, fitch_num_nodes, fitch_node_index);
+
+    fitch_node_major.assign((size_t)fitch_num_nodes * fitch_nptn, 0);
+    fitch_node_penalty.assign(fitch_num_nodes, 0);
+    fitch_subtree_score.assign(fitch_num_nodes, 0);
+
+    fitch_ptn_freq.resize(fitch_nptn);
+    fitch_ptn_is_const.resize(fitch_nptn);
+    fitch_ptn_position.resize(fitch_nptn);
+    for (int ptn = 0; ptn < fitch_nptn; ptn++) {
+        fitch_ptn_freq[ptn] = aln->at(ptn).frequency;
+        fitch_ptn_is_const[ptn] = aln->at(ptn).is_const;
+    }
+
+    fitchBuildPatternToSites();
+
+    PhyloNode* r = (PhyloNode*)root;
+    PhyloNode* root_neighbor = (PhyloNode*)r->neighbors[0]->node;
+
+    int root_idx = fitchGetIdx(r);
+    nuc_one_hot* root_major = fitchMajorAt(root_idx);
+    for (int ptn = 0; ptn < fitch_nptn; ptn++) {
+        int state = (aln->at(ptn))[r->id];
+        root_major[ptn] = (nuc_one_hot)(dna_state_map[state] & 0xF);
+    }
+
+    int subtree_score_total = fitchBottomUp(root_neighbor, r);
+
+    int root_edge_score = 0;
+    int rn_idx = fitchGetIdx(root_neighbor);
+    const nuc_one_hot* rn_major = fitchMajorAt(rn_idx);
+    for (int ptn = 0; ptn < fitch_nptn; ptn++) {
+        if ((root_major[ptn] & rn_major[ptn]) == 0) {
+            root_edge_score += fitch_ptn_freq[ptn];
+        }
+    }
+
+    int total_score = subtree_score_total + root_edge_score;
+
+    vector<nuc_one_hot> virtual_root_states(fitch_nptn);
+    for (int ptn = 0; ptn < fitch_nptn; ptn++) {
+        nuc_one_hot intersect = root_major[ptn] & rn_major[ptn];
+        if (intersect != 0) {
+            virtual_root_states[ptn] = fitchChooseRepresentative(intersect);
+        } else {
+            virtual_root_states[ptn] = fitchChooseRepresentative(root_major[ptn] | rn_major[ptn]);
+        }
+    }
+
+    fitchTopDown(root_neighbor, r, virtual_root_states);
+
+    fitch_root_side_mutation_count = 0;
+    {
+        for (int ptn = 0; ptn < fitch_nptn; ptn++) {
+            nuc_one_hot vr = virtual_root_states[ptn];
+
+            nuc_one_hot root_assigned;
+            if (vr & root_major[ptn]) {
+                root_assigned = vr;
+            } else {
+                root_assigned = fitchChooseRepresentative(root_major[ptn]);
+            }
+
+            if (root_assigned == vr) continue;
+            if (fitch_ptn_is_const[ptn]) continue;
+
+            fitch_root_side_mutation_count += (int)fitch_pattern_to_sites[ptn].size();
+        }
+    }
+
+    fitchComputeDiffs();
+
+    cout << "Fitch: score=" << total_score << " patterns=" << fitch_nptn
+         << " nodes=" << fitch_num_nodes << endl;
+
+    return total_score;
+}
+
+int PhyloTree::fitchRunForSPR() {
+    assert(root != nullptr);
+    assert(root->isLeaf());
+
+    fitch_nptn = aln->size();
+
+    fitchAssignNodeIndices(this, fitch_max_node_id, fitch_num_nodes, fitch_node_index);
+
+    fitch_node_major.assign((size_t)fitch_num_nodes * fitch_nptn, 0);
+    fitch_node_penalty.assign(fitch_num_nodes, 0);
+    fitch_subtree_score.assign(fitch_num_nodes, 0);
+
+    fitch_ptn_freq.resize(fitch_nptn);
+    fitch_ptn_is_const.resize(fitch_nptn);
+    fitch_ptn_position.resize(fitch_nptn);
+    for (int ptn = 0; ptn < fitch_nptn; ptn++) {
+        fitch_ptn_freq[ptn] = aln->at(ptn).frequency;
+        fitch_ptn_is_const[ptn] = aln->at(ptn).is_const;
+    }
+
+    PhyloNode* r = (PhyloNode*)root;
+    PhyloNode* root_neighbor = (PhyloNode*)r->neighbors[0]->node;
+
+    int root_idx = fitchGetIdx(r);
+    nuc_one_hot* root_major = fitchMajorAt(root_idx);
+    for (int ptn = 0; ptn < fitch_nptn; ptn++) {
+        int state = (aln->at(ptn))[r->id];
+        root_major[ptn] = (nuc_one_hot)(dna_state_map[state] & 0xF);
+    }
+
+    int st_score = fitchBottomUp(root_neighbor, r);
+
+    int root_edge_score = 0;
+    int rn_idx = fitchGetIdx(root_neighbor);
+    const nuc_one_hot* rn_major = fitchMajorAt(rn_idx);
+    for (int ptn = 0; ptn < fitch_nptn; ptn++) {
+        if ((root_major[ptn] & rn_major[ptn]) == 0) {
+            root_edge_score += fitch_ptn_freq[ptn];
+        }
+    }
+
+    int total_score = st_score + root_edge_score;
+
+    fitchComputeDiffs();
+
+    cout << "Fitch (SPR init): score=" << total_score << " patterns=" << fitch_nptn
+         << " nodes=" << fitch_num_nodes << endl;
+
+    return total_score;
+}
+
+int PhyloTree::fitchCountMutations() const {
+    int total = 0;
+    set<PhyloNode*> visited;
+    queue<PhyloNode*> q;
+    q.push((PhyloNode*)root);
+
+    while (!q.empty()) {
+        PhyloNode* node = q.front(); q.pop();
+        if (visited.count(node)) continue;
+        visited.insert(node);
+
+        FOR_NEIGHBOR_IT(node, nullptr, it) {
+            PhyloNode* neighbor = (PhyloNode*)(*it)->node;
+            if (!visited.count(neighbor)) {
+                PhyloNeighbor* edge = (PhyloNeighbor*)(*it);
+                total += (int)edge->mutations.size();
+                q.push(neighbor);
+            }
+        }
+    }
+
+    total += fitch_root_side_mutation_count;
+
+    return total;
+}
+
+int PhyloTree::fitchLocalBottomUp(PhyloNode* node, PhyloNode* parent) {
+    int idx = fitchGetIdx(node);
+    nuc_one_hot* my_major = fitchMajorAt(idx);
+
+    if (node->isLeaf()) {
+        fitch_subtree_score[idx] = 0;
+        fitch_node_penalty[idx] = 0;
+        return 0;
+    }
+
+    PhyloNode* child0 = nullptr;
+    PhyloNode* child1 = nullptr;
+    FOR_NEIGHBOR_IT(node, parent, it) {
+        if (!child0) child0 = (PhyloNode*)(*it)->node;
+        else child1 = (PhyloNode*)(*it)->node;
+    }
+    assert(child0 && child1);
+
+    int children_score = fitchLocalBottomUp(child0, node) + fitchLocalBottomUp(child1, node);
+
+    const nuc_one_hot* c0 = fitchMajorAt(fitchGetIdx(child0));
+    const nuc_one_hot* c1 = fitchMajorAt(fitchGetIdx(child1));
+
+    int my_penalty = 0;
+    for (int ptn = 0; ptn < fitch_nptn; ptn++) {
+        nuc_one_hot intersect = c0[ptn] & c1[ptn];
+        if (intersect != 0) {
+            my_major[ptn] = intersect;
+        } else {
+            my_major[ptn] = c0[ptn] | c1[ptn];
+            my_penalty += fitch_ptn_freq[ptn];
+        }
+    }
+
+    fitch_node_penalty[idx] = my_penalty;
+    fitch_subtree_score[idx] = children_score + my_penalty;
+    return children_score + my_penalty;
+}
+
+int PhyloTree::fitchRecompute() {
+    assert(!fitch_ptn_freq.empty());
+    assert(!fitch_node_major.empty());
+
+    PhyloNode* r = (PhyloNode*)root;
+    PhyloNode* root_neighbor = (PhyloNode*)r->neighbors[0]->node;
+
+    int subtree_score_total = fitchLocalBottomUp(root_neighbor, r);
+
+    int root_edge_score = 0;
+    int root_idx = fitchGetIdx(r);
+    int rn_idx = fitchGetIdx(root_neighbor);
+    const nuc_one_hot* root_major_ptr = fitchMajorAt(root_idx);
+    const nuc_one_hot* rn_major_ptr = fitchMajorAt(rn_idx);
+    for (int ptn = 0; ptn < fitch_nptn; ptn++) {
+        if ((root_major_ptr[ptn] & rn_major_ptr[ptn]) == 0) {
+            root_edge_score += fitch_ptn_freq[ptn];
+        }
+    }
+
+    int total_score = subtree_score_total + root_edge_score;
+
+    vector<nuc_one_hot> virtual_root_states(fitch_nptn);
+    for (int ptn = 0; ptn < fitch_nptn; ptn++) {
+        nuc_one_hot intersect = root_major_ptr[ptn] & rn_major_ptr[ptn];
+        if (intersect != 0) {
+            virtual_root_states[ptn] = fitchChooseRepresentative(intersect);
+        } else {
+            virtual_root_states[ptn] = fitchChooseRepresentative(root_major_ptr[ptn] | rn_major_ptr[ptn]);
+        }
+    }
+
+    fitchTopDown(root_neighbor, r, virtual_root_states);
+
+    fitch_root_side_mutation_count = 0;
+    {
+        for (int ptn = 0; ptn < fitch_nptn; ptn++) {
+            nuc_one_hot vr = virtual_root_states[ptn];
+
+            nuc_one_hot root_assigned;
+            if (vr & root_major_ptr[ptn]) {
+                root_assigned = vr;
+            } else {
+                root_assigned = fitchChooseRepresentative(root_major_ptr[ptn]);
+            }
+
+            if (root_assigned == vr) continue;
+            if (fitch_ptn_is_const[ptn]) continue;
+
+            fitch_root_side_mutation_count += (int)fitch_pattern_to_sites[ptn].size();
+        }
+    }
+
+    fitchComputeDiffs();
+
+    return total_score;
+}
+
+int PhyloTree::fitchRecomputeWithDiffs() {
+    assert(!fitch_ptn_freq.empty());
+    assert(!fitch_node_major.empty());
+
+    PhyloNode* r = (PhyloNode*)root;
+    PhyloNode* root_neighbor = (PhyloNode*)r->neighbors[0]->node;
+
+    int subtree_score_total = fitchLocalBottomUp(root_neighbor, r);
+
+    int root_edge_score = 0;
+    int root_idx = fitchGetIdx(r);
+    int root_nei_idx = fitchGetIdx(root_neighbor);
+    const nuc_one_hot* root_major_ptr = fitchMajorAt(root_idx);
+    const nuc_one_hot* root_nei_major_ptr = fitchMajorAt(root_nei_idx);
+    for (int ptn = 0; ptn < fitch_nptn; ptn++) {
+        if ((root_major_ptr[ptn] & root_nei_major_ptr[ptn]) == 0) {
+            root_edge_score += fitch_ptn_freq[ptn];
+        }
+    }
+
+    fitchComputeDiffs();
+
+    return subtree_score_total + root_edge_score;
+}
+
+int PhyloTree::fitchRecomputeScore() {
+    assert(!fitch_ptn_freq.empty());
+    assert(!fitch_node_major.empty());
+
+    PhyloNode* r = (PhyloNode*)root;
+    PhyloNode* root_neighbor = (PhyloNode*)r->neighbors[0]->node;
+
+    int subtree_score_total = fitchLocalBottomUp(root_neighbor, r);
+
+    int root_edge_score = 0;
+    int root_idx = fitchGetIdx(r);
+    int rn_idx = fitchGetIdx(root_neighbor);
+    const nuc_one_hot* root_major_ptr = fitchMajorAt(root_idx);
+    const nuc_one_hot* rn_major_ptr = fitchMajorAt(rn_idx);
+    for (int ptn = 0; ptn < fitch_nptn; ptn++) {
+        if ((root_major_ptr[ptn] & rn_major_ptr[ptn]) == 0) {
+            root_edge_score += fitch_ptn_freq[ptn];
+        }
+    }
+
+    return subtree_score_total + root_edge_score;
+}
+
+int PhyloTree::fitchLocalBottomUpDirty(PhyloNode* node, PhyloNode* parent,
+                                        bool& changed,
+                                        std::vector<FitchDirtyNodeSave>* dirty_saved,
+                                        const std::set<PhyloNode*>* force_dirty) {
+    int idx = fitchGetIdx(node);
+
+    if (node->isLeaf()) {
+        changed = false;
+        return 0;
+    }
+
+    PhyloNode* child0 = nullptr;
+    PhyloNode* child1 = nullptr;
+    FOR_NEIGHBOR_IT(node, parent, it) {
+        if (!child0) child0 = (PhyloNode*)(*it)->node;
+        else child1 = (PhyloNode*)(*it)->node;
+    }
+    assert(child0 && child1);
+
+    bool c0_changed = false, c1_changed = false;
+    int s0 = fitchLocalBottomUpDirty(child0, node, c0_changed, dirty_saved, force_dirty);
+    int s1 = fitchLocalBottomUpDirty(child1, node, c1_changed, dirty_saved, force_dirty);
+    int children_score = s0 + s1;
+
+    bool must_recompute = c0_changed || c1_changed;
+    if (!must_recompute && force_dirty && force_dirty->count(node)) {
+        must_recompute = true;
+    }
+
+    if (!must_recompute) {
+        changed = false;
+        return children_score + fitch_node_penalty[idx];
+    }
+
+    nuc_one_hot* my_major = fitchMajorAt(idx);
+    const nuc_one_hot* c0 = fitchMajorAt(fitchGetIdx(child0));
+    const nuc_one_hot* c1 = fitchMajorAt(fitchGetIdx(child1));
+
+    if (dirty_saved) {
+        FitchDirtyNodeSave save;
+        save.idx = idx;
+        save.major.assign(my_major, my_major + fitch_nptn);
+        save.penalty = fitch_node_penalty[idx];
+        save.sub_score = fitch_subtree_score[idx];
+        dirty_saved->push_back(std::move(save));
+    }
+
+    int my_penalty = 0;
+    changed = false;
+    for (int ptn = 0; ptn < fitch_nptn; ptn++) {
+        nuc_one_hot intersect = c0[ptn] & c1[ptn];
+        nuc_one_hot new_state = intersect ? intersect : (c0[ptn] | c1[ptn]);
+        if (new_state != my_major[ptn]) changed = true;
+        my_major[ptn] = new_state;
+        if (!intersect) my_penalty += fitch_ptn_freq[ptn];
+    }
+
+    fitch_node_penalty[idx] = my_penalty;
+    fitch_subtree_score[idx] = children_score + my_penalty;
+    return children_score + my_penalty;
+}
+
+int PhyloTree::fitchRecomputeScoreDirty(const std::set<PhyloNode*>& force_dirty) {
+    assert(!fitch_ptn_freq.empty());
+    assert(!fitch_node_major.empty());
+    assert(!fitch_node_penalty.empty());
+
+    PhyloNode* r = (PhyloNode*)root;
+    PhyloNode* root_neighbor = (PhyloNode*)r->neighbors[0]->node;
+
+    bool changed = false;
+    int sub_score = fitchLocalBottomUpDirty(root_neighbor, r, changed, nullptr, &force_dirty);
+
+    int root_edge_score = 0;
+    int root_idx = fitchGetIdx(r);
+    const nuc_one_hot* root_major_ptr = fitchMajorAt(root_idx);
+    const nuc_one_hot* rn_major_ptr = fitchMajorAt(fitchGetIdx(root_neighbor));
+    for (int ptn = 0; ptn < fitch_nptn; ptn++) {
+        if ((root_major_ptr[ptn] & rn_major_ptr[ptn]) == 0) {
+            root_edge_score += fitch_ptn_freq[ptn];
+        }
+    }
+
+    return sub_score + root_edge_score;
+}
+
+int PhyloTree::fitchRecomputeScoreDirtyAndRestore(const std::set<PhyloNode*>& force_dirty) {
+    assert(!fitch_ptn_freq.empty());
+    assert(!fitch_node_major.empty());
+    assert(!fitch_node_penalty.empty());
+
+    PhyloNode* r = (PhyloNode*)root;
+    PhyloNode* root_neighbor = (PhyloNode*)r->neighbors[0]->node;
+
+    std::vector<FitchDirtyNodeSave> dirty_saved;
+
+    bool changed = false;
+    int sub_score = fitchLocalBottomUpDirty(root_neighbor, r, changed, &dirty_saved, &force_dirty);
+
+    int root_edge_score = 0;
+    int root_idx = fitchGetIdx(r);
+    const nuc_one_hot* root_major_ptr = fitchMajorAt(root_idx);
+    const nuc_one_hot* rn_major_ptr = fitchMajorAt(fitchGetIdx(root_neighbor));
+    for (int ptn = 0; ptn < fitch_nptn; ptn++) {
+        if ((root_major_ptr[ptn] & rn_major_ptr[ptn]) == 0) {
+            root_edge_score += fitch_ptn_freq[ptn];
+        }
+    }
+
+    int score = sub_score + root_edge_score;
+
+    for (auto it = dirty_saved.rbegin(); it != dirty_saved.rend(); ++it) {
+        int idx = it->idx;
+        nuc_one_hot* my_major = fitchMajorAt(idx);
+        std::copy(it->major.begin(), it->major.end(), my_major);
+        fitch_node_penalty[idx] = it->penalty;
+        fitch_subtree_score[idx] = it->sub_score;
+    }
+
+    return score;
+}
+
+/****************************************************************************
+ LCA query (Euler-tour + sparse-table O(1))
+ ****************************************************************************/
+
+void PhyloTree::buildLCATable() {
+    lca_table.reset();
+    if (root) lca_table.build(this, (PhyloNode*)root);
+}
+
+PhyloNode* PhyloTree::findLCA(PhyloNode* a, PhyloNode* b) const {
+    if (!a || !b) return nullptr;
+    if (a == b) return a;
+
+    if (lca_table.isReady() &&
+        lca_table.hasFirstAppearance(a->id) && lca_table.hasFirstAppearance(b->id)) {
+        int l = lca_table.firstAppearance(a->id);
+        int r = lca_table.firstAppearance(b->id);
+        return lca_table.eulerNodeAt(lca_table.rmq(l, r));
+    }
+
+    auto parentOf = [this](PhyloNode* n) -> PhyloNode* {
+        if (!n || n == (PhyloNode*)this->root) return nullptr;
+        return (PhyloNode*)n->neighbors[0]->node;
+    };
+
+    int d1, d2;
+    if (!lca_table.nodeDepthEmpty()) {
+        int dep_a = lca_table.getDepth(a->id);
+        int dep_b = lca_table.getDepth(b->id);
+        d1 = (dep_a >= 0) ? dep_a : 0;
+        d2 = (dep_b >= 0) ? dep_b : 0;
+    } else {
+        d1 = d2 = 0;
+        for (PhyloNode* c = a; c; c = parentOf(c)) d1++;
+        for (PhyloNode* c = b; c; c = parentOf(c)) d2++;
+    }
+
+    PhyloNode* x = a;
+    PhyloNode* y = b;
+    while (d1 > d2) { x = parentOf(x); d1--; }
+    while (d2 > d1) { y = parentOf(y); d2--; }
+    while (x != y) {
+        x = parentOf(x);
+        y = parentOf(y);
+    }
+    return x;
+}
+
+/****************************************************************************
+ LCATable implementation (Euler-tour + sparse-table O(1) RMQ)
+ ****************************************************************************/
+
+void LCATable::reset() {
+    node_depth.clear();
+    euler.clear();
+    euler_depth.clear();
+    first_appearance.clear();
+    sparse_table.clear();
+    log2_table.clear();
+    ready = false;
+}
+
+void LCATable::eulerTourDFS(PhyloNode* root, int max_id) {
+    int estimated_nodes = max_id + 1;
+    euler.clear();
+    euler.reserve(estimated_nodes * 2);
+    euler_depth.clear();
+    euler_depth.reserve(estimated_nodes * 2);
+    first_appearance.assign(max_id + 1, -1);
+    node_depth.assign(max_id + 1, -1);
+
+    struct DFSFrame {
+        PhyloNode* node;
+        PhyloNode* parent;
+        int child_idx;
+        int depth;
+        int num_children;
+        int children_offset;
+    };
+
+    static std::vector<PhyloNode*> children_buf;
+    static std::vector<DFSFrame> stack;
+    children_buf.clear();
+    children_buf.reserve(estimated_nodes * 3);
+    stack.clear();
+    stack.reserve(estimated_nodes);
+
+    DFSFrame root_frame;
+    root_frame.node = root;
+    root_frame.parent = nullptr;
+    root_frame.child_idx = 0;
+    root_frame.depth = 0;
+
+    int children_start = (int)children_buf.size();
+    FOR_NEIGHBOR_IT(root, nullptr, it) {
+        children_buf.push_back((PhyloNode*)(*it)->node);
+    }
+    root_frame.num_children = (int)children_buf.size() - children_start;
+    root_frame.children_offset = children_start;
+
+    euler.push_back(root);
+    euler_depth.push_back(0);
+    first_appearance[root->id] = 0;
+    node_depth[root->id] = 0;
+
+    stack.push_back(root_frame);
+
+    while (!stack.empty()) {
+        DFSFrame& frame = stack.back();
+
+        if (frame.child_idx < frame.num_children) {
+            PhyloNode* child = children_buf[frame.children_offset + frame.child_idx];
+            frame.child_idx++;
+
+            if (child == frame.parent) continue;
+            if (child->id >= 0 && child->id <= max_id && node_depth[child->id] >= 0) continue;
+
+            int child_depth = frame.depth + 1;
+
+            node_depth[child->id] = child_depth;
+            first_appearance[child->id] = (int)euler.size();
+            euler.push_back(child);
+            euler_depth.push_back(child_depth);
+
+            DFSFrame child_frame;
+            child_frame.node = child;
+            child_frame.parent = frame.node;
+            child_frame.child_idx = 0;
+            child_frame.depth = child_depth;
+
+            int cs = (int)children_buf.size();
+            FOR_NEIGHBOR_IT(child, nullptr, it2) {
+                children_buf.push_back((PhyloNode*)(*it2)->node);
+            }
+            child_frame.num_children = (int)children_buf.size() - cs;
+            child_frame.children_offset = cs;
+
+            stack.push_back(child_frame);
+        } else {
+            stack.pop_back();
+            if (!stack.empty()) {
+                DFSFrame& parent_frame = stack.back();
+                euler.push_back(parent_frame.node);
+                euler_depth.push_back(parent_frame.depth);
+            }
+        }
+    }
+}
+
+void LCATable::buildSparseTable() {
+    int n = (int)euler_depth.size();
+    if (n == 0) return;
+
+    log2_table.assign(n + 1, 0);
+    for (int i = 2; i <= n; i++)
+        log2_table[i] = log2_table[i / 2] + 1;
+
+    int LOG = log2_table[n] + 1;
+    sparse_table.assign(n, std::vector<int>(LOG, 0));
+
+    for (int i = 0; i < n; i++)
+        sparse_table[i][0] = i;
+
+    for (int j = 1; j < LOG; j++) {
+        int len = 1 << j;
+        for (int i = 0; i + len <= n; i++) {
+            int left = sparse_table[i][j - 1];
+            int right = sparse_table[i + (len >> 1)][j - 1];
+            sparse_table[i][j] = (euler_depth[left] <= euler_depth[right]) ? left : right;
+        }
+    }
+}
+
+int LCATable::rmq(int l, int r) const {
+    if (l > r) std::swap(l, r);
+    int len = r - l + 1;
+    int k = log2_table[len];
+    int left = sparse_table[l][k];
+    int right = sparse_table[r - (1 << k) + 1][k];
+    return (euler_depth[left] <= euler_depth[right]) ? left : right;
+}
+
+void LCATable::build(PhyloTree* tree, PhyloNode* root_node) {
+    ready = false;
+    node_depth.clear();
+    if (!tree || !root_node) return;
+
+    int max_id = 0;
+    std::queue<PhyloNode*> bfs_q;
+    std::vector<bool> visited;
+    int initial_size = std::max(1, tree->nodeNum * 2);
+    visited.assign(initial_size, false);
+    bfs_q.push(root_node);
+
+    while (!bfs_q.empty()) {
+        PhyloNode* node = bfs_q.front(); bfs_q.pop();
+        if (node->id < 0) continue;
+        if (node->id >= (int)visited.size()) visited.resize(node->id + 1, false);
+        if (visited[node->id]) continue;
+        visited[node->id] = true;
+        if (node->id > max_id) max_id = node->id;
+        FOR_NEIGHBOR_IT(node, nullptr, it) {
+            PhyloNode* nb = (PhyloNode*)(*it)->node;
+            if (nb->id >= 0) {
+                if (nb->id >= (int)visited.size() || !visited[nb->id])
+                    bfs_q.push(nb);
+            }
+        }
+    }
+
+    eulerTourDFS(root_node, max_id);
+    buildSparseTable();
+    ready = true;
 }

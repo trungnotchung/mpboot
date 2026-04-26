@@ -404,11 +404,11 @@ mutation.cpp
 placement.cpp
 sproptimize.cpp
 onehot_encoding.cpp
+spr_context.cpp
 spr_mutation_ops.cpp
 spr_delta_exact.cpp
 test_spr_unit.cpp
 test_spr_delta.cpp
-fitch.cpp
 )
 
 ##################################################################
