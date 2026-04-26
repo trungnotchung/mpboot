@@ -6,6 +6,23 @@
 #include <vector>
 #include <algorithm>
 
+struct SPRNeighborSave {
+    Neighbor* neighbor;
+    Node*     original_node;
+};
+
+inline void sprSaveNodeTopology(Node* node, std::vector<SPRNeighborSave>& saves) {
+    for (auto it = node->neighbors.begin(); it != node->neighbors.end(); ++it) {
+        saves.push_back({*it, (*it)->node});
+    }
+}
+
+inline void sprUndoTopology(std::vector<SPRNeighborSave>& saves) {
+    for (auto& s : saves) {
+        s.neighbor->node = s.original_node;
+    }
+}
+
 static inline nuc_one_hot fitchMerge(nuc_one_hot left, nuc_one_hot right) {
     nuc_one_hot intersect = left & right;
     return intersect ? intersect : (left | right);
