@@ -1,201 +1,41 @@
 #include "spr_delta_exact.h"
 #include "spr_mutation_ops.h"
 #include "spr_utils.h"
-#include "fitch.h"
+#include "spr_context.h"
+#include "phylotree.h"
 #include <algorithm>
+#include <cassert>
 #include <map>
 #include <queue>
 
-// Static state for binary fallback
-static Fitch* s_fitch = nullptr;
-static int s_current_score = 0;
-
-static std::vector<int> s_node_depth;
-
-// Euler tour + sparse table for O(1) LCA queries
-static std::vector<PhyloNode*> s_euler;
-static std::vector<int> s_euler_depth;
-static std::vector<int> s_first_appearance;
-static std::vector<std::vector<int>> s_sparse_table;
-static std::vector<int> s_log2;
-static bool s_lca_ready = false;
-
-void SPRDeltaExact::setCustomFitch(Fitch* fitch, int current_score) {
-    s_fitch = fitch;
-    s_current_score = current_score;
-}
-
-static void eulerTourDFS(PhyloNode* root, int max_id) {
-    int estimated_nodes = max_id + 1;
-    s_euler.clear();
-    s_euler.reserve(estimated_nodes * 2);
-    s_euler_depth.clear();
-    s_euler_depth.reserve(estimated_nodes * 2);
-    s_first_appearance.assign(max_id + 1, -1);
-    s_node_depth.assign(max_id + 1, -1);
-
-    struct DFSFrame {
-        PhyloNode* node;
-        PhyloNode* parent;
-        int child_idx;       // which child to process next
-        int depth;
-        int num_children;
-        int children_offset; // offset into children_buf
-    };
-
-    static std::vector<PhyloNode*> children_buf;
-    static std::vector<DFSFrame> stack;
-    children_buf.clear();
-    children_buf.reserve(estimated_nodes * 3);  // each node has ~3 neighbors
-    stack.clear();
-    stack.reserve(estimated_nodes);
-
-    DFSFrame root_frame;
-    root_frame.node = root;
-    root_frame.parent = nullptr;
-    root_frame.child_idx = 0;
-    root_frame.depth = 0;
-
-    int children_start = (int)children_buf.size();
-    FOR_NEIGHBOR_IT(root, nullptr, it) {
-        children_buf.push_back((PhyloNode*)(*it)->node);
-    }
-    root_frame.num_children = (int)children_buf.size() - children_start;
-    root_frame.children_offset = children_start;
-
-    s_euler.push_back(root);
-    s_euler_depth.push_back(0);
-    s_first_appearance[root->id] = 0;
-    s_node_depth[root->id] = 0;
-
-    stack.push_back(root_frame);
-
-    while (!stack.empty()) {
-        DFSFrame& frame = stack.back();
-
-        if (frame.child_idx < frame.num_children) {
-            PhyloNode* child = children_buf[frame.children_offset + frame.child_idx];
-            frame.child_idx++;
-
-            if (child == frame.parent) continue;
-            if (child->id >= 0 && child->id <= max_id && s_node_depth[child->id] >= 0) continue;
-
-            int child_depth = frame.depth + 1;
-
-            s_node_depth[child->id] = child_depth;
-            s_first_appearance[child->id] = (int)s_euler.size();
-            s_euler.push_back(child);
-            s_euler_depth.push_back(child_depth);
-
-            DFSFrame child_frame;
-            child_frame.node = child;
-            child_frame.parent = frame.node;
-            child_frame.child_idx = 0;
-            child_frame.depth = child_depth;
-
-            int cs = (int)children_buf.size();
-            FOR_NEIGHBOR_IT(child, nullptr, it2) {
-                children_buf.push_back((PhyloNode*)(*it2)->node);
-            }
-            child_frame.num_children = (int)children_buf.size() - cs;
-            child_frame.children_offset = cs;
-
-            stack.push_back(child_frame);
-        } else {
-            stack.pop_back();
-            if (!stack.empty()) {
-                DFSFrame& parent_frame = stack.back();
-                s_euler.push_back(parent_frame.node);
-                s_euler_depth.push_back(parent_frame.depth);
-            }
-        }
-    }
-}
-
-static void buildSparseTable() {
-    int n = (int)s_euler_depth.size();
-    if (n == 0) return;
-
-    s_log2.assign(n + 1, 0);
-    for (int i = 2; i <= n; i++)
-        s_log2[i] = s_log2[i / 2] + 1;
-
-    int LOG = s_log2[n] + 1;
-    s_sparse_table.assign(n, std::vector<int>(LOG, 0));
-
-    for (int i = 0; i < n; i++)
-        s_sparse_table[i][0] = i;
-
-    for (int j = 1; j < LOG; j++) {
-        int len = 1 << j;
-        for (int i = 0; i + len <= n; i++) {
-            int left = s_sparse_table[i][j - 1];
-            int right = s_sparse_table[i + (len >> 1)][j - 1];
-            s_sparse_table[i][j] = (s_euler_depth[left] <= s_euler_depth[right]) ? left : right;
-        }
-    }
-}
-
-static int rmq(int l, int r) {
-    if (l > r) std::swap(l, r);
-    int len = r - l + 1;
-    int k = s_log2[len];
-    int left = s_sparse_table[l][k];
-    int right = s_sparse_table[r - (1 << k) + 1][k];
-    return (s_euler_depth[left] <= s_euler_depth[right]) ? left : right;
-}
+// Two delta paths:
+//   sparseBinaryDelta (binary src_parent, ctx->fitch set): O(M) via Fitch arrays.
+//   mutation fallback: reads PhyloNeighbor::mutations, which are stale during
+//   SPROptimizer::optimizeAtRadius. Only safe to use after optimizeTree() returns
+//   and the caller has refreshed mutations via tree->computeParsimony().
 
 void SPRDeltaExact::precomputeDepths(PhyloTree* tree) {
-    s_lca_ready = false;
-    s_node_depth.clear();
-    if (!tree || !tree->root) return;
-
-    int max_id = 0;
-    std::queue<PhyloNode*> bfs_q;
-    std::vector<bool> visited;
-    int initial_size = std::max(1, tree->nodeNum * 2);
-    visited.assign(initial_size, false);
-    bfs_q.push((PhyloNode*)tree->root);
-
-    while (!bfs_q.empty()) {
-        PhyloNode* node = bfs_q.front(); bfs_q.pop();
-        if (node->id < 0) continue;
-        if (node->id >= (int)visited.size()) visited.resize(node->id + 1, false);
-        if (visited[node->id]) continue;
-        visited[node->id] = true;
-        if (node->id > max_id) max_id = node->id;
-        FOR_NEIGHBOR_IT(node, nullptr, it) {
-            PhyloNode* nb = (PhyloNode*)(*it)->node;
-            if (nb->id >= 0) {
-                if (nb->id >= (int)visited.size() || !visited[nb->id])
-                    bfs_q.push(nb);
-            }
-        }
-    }
-
-    eulerTourDFS((PhyloNode*)tree->root, max_id);
-    buildSparseTable();
-    s_lca_ready = true;
+    if (tree) tree->buildLCATable();
 }
 
 static std::vector<PathStep> buildPath(PhyloNode* prev, PhyloNode* cur,
-                                        PhyloNode* stop_node, Fitch* fitch) {
+                                        PhyloNode* stop_node, PhyloTree* tree) {
     std::vector<PathStep> path;
     while (cur && cur != stop_node) {
         PhyloNode* cur_parent = SPRMutationOps::getParent(cur);
         PhyloNode* other = findOtherChild(cur, cur_parent, prev);
         const nuc_one_hot* other_states = other
-            ? fitch->getMajorArrayForNode(other)
-            : fitch->getMajorArrayForNode(cur);  // root leaf: use own state
-        path.push_back({cur, other_states, fitch->getMajorArrayForNode(cur)});
+            ? tree->fitchMajorArrayFor(other)
+            : tree->fitchMajorArrayFor(cur);  // root leaf: use own state
+        path.push_back({cur, other_states, tree->fitchMajorArrayFor(cur)});
         prev = cur;
         cur = cur_parent;
     }
     return path;
 }
 
-static inline void collectDiffs(Fitch* fitch, PhyloNode* node, std::vector<int>& out) {
-    mergeDiffsSorted(out, fitch->getFitchDiffs(node));
+static inline void collectDiffs(PhyloTree* tree, PhyloNode* node, std::vector<int>& out) {
+    mergeDiffsSorted(out, tree->fitchDiffsFor(node));
 }
 
 static long long s_total_M = 0, s_total_P = 0;
@@ -204,8 +44,8 @@ static int s_max_M = 0;
 
 static int sparseBinaryDelta(PhyloNode* src, PhyloNode* src_parent,
                               PhyloNode* dst, PhyloNode* dst_parent) {
-    if (!s_fitch) return 0;
-    Fitch* fitch = s_fitch;
+    PhyloTree* tree = getActiveSPRTree();
+    if (!tree) return 0;
 
     PhyloNode* grandparent = SPRMutationOps::getParent(src_parent);
     PhyloNode* sibling = findOtherChild(src_parent, grandparent, src);
@@ -214,37 +54,37 @@ static int sparseBinaryDelta(PhyloNode* src, PhyloNode* src_parent,
     PhyloNode* lca = SPRDeltaExact::findLCA(src_parent, dst, nullptr);
     if (!lca) return 0;
 
-    const nuc_one_hot* src_states = fitch->getMajorArrayForNode(src);
-    const nuc_one_hot* sibling_st = fitch->getMajorArrayForNode(sibling);
-    const nuc_one_hot* sp_states = fitch->getMajorArrayForNode(src_parent);
-    const nuc_one_hot* dst_states = fitch->getMajorArrayForNode(dst);
+    const nuc_one_hot* src_states = tree->fitchMajorArrayFor(src);
+    const nuc_one_hot* sibling_st = tree->fitchMajorArrayFor(sibling);
+    const nuc_one_hot* sp_states = tree->fitchMajorArrayFor(src_parent);
+    const nuc_one_hot* dst_states = tree->fitchMajorArrayFor(dst);
 
     int score = 0;
-    int num_patterns = fitch->getNumPatterns();
+    int num_patterns = tree->fitchNumPatterns();
     int local_M = 0; // for stats
 
     if (lca == src_parent) {
         // ========== CASE A: dst in sibling's subtree ==========
-        std::vector<PathStep> path_to_sp = buildPath(dst, dst_parent, src_parent, fitch);
+        std::vector<PathStep> path_to_sp = buildPath(dst, dst_parent, src_parent, tree);
 
         PhyloNode* gp_sibling = findOtherChild(grandparent, SPRMutationOps::getParent(grandparent), src_parent);
-        const nuc_one_hot* gp_sibling_states = gp_sibling ? fitch->getMajorArrayForNode(gp_sibling) : nullptr;
-        const nuc_one_hot* gp_states = fitch->getMajorArrayForNode(grandparent);
+        const nuc_one_hot* gp_sibling_states = gp_sibling ? tree->fitchMajorArrayFor(gp_sibling) : nullptr;
+        const nuc_one_hot* gp_states = tree->fitchMajorArrayFor(grandparent);
 
         std::vector<PathStep> path_above_gp = buildPath(
-            grandparent, SPRMutationOps::getParent(grandparent), nullptr, fitch);
+            grandparent, SPRMutationOps::getParent(grandparent), nullptr, tree);
 
         // Collect O(M) affected patterns
         std::vector<int> affected;
-        collectDiffs(fitch, src, affected);
-        collectDiffs(fitch, sibling, affected);
-        collectDiffs(fitch, src_parent, affected);
-        collectDiffs(fitch, dst, affected);
-        for (const auto& step : path_to_sp) collectDiffs(fitch, step.node, affected);
+        collectDiffs(tree, src, affected);
+        collectDiffs(tree, sibling, affected);
+        collectDiffs(tree, src_parent, affected);
+        collectDiffs(tree, dst, affected);
+        for (const auto& step : path_to_sp) collectDiffs(tree, step.node, affected);
         local_M = (int)affected.size();
 
         for (int ptn : affected) {
-            int freq = fitch->getPatternFreq(ptn);
+            int freq = tree->fitchPatternFreq(ptn);
             nuc_one_hot src_fitch = src_states[ptn], sibling_fitch = sibling_st[ptn];
             nuc_one_hot dst_fitch = dst_states[ptn], sp_fitch = sp_states[ptn];
 
@@ -276,38 +116,38 @@ static int sparseBinaryDelta(PhyloNode* src, PhyloNode* src_parent,
 
     } else if (dst == lca) {
         // ========== CASE B1: dst == lca ==========
-        std::vector<PathStep> src_path = buildPath(src_parent, grandparent, lca, fitch);
+        std::vector<PathStep> src_path = buildPath(src_parent, grandparent, lca, tree);
         PhyloNode* src_branch = src_path.empty() ? src_parent : src_path.back().node;
-        const nuc_one_hot* src_branch_states = fitch->getMajorArrayForNode(src_branch);
+        const nuc_one_hot* src_branch_states = tree->fitchMajorArrayFor(src_branch);
 
         PhyloNode* lca_parent = SPRMutationOps::getParent(lca);
         PhyloNode* lca_sibling = findOtherChild(lca, lca_parent, src_branch);
-        const nuc_one_hot* lca_sibling_states = lca_sibling ? fitch->getMajorArrayForNode(lca_sibling) : nullptr;
-        const nuc_one_hot* lca_states = fitch->getMajorArrayForNode(lca);
+        const nuc_one_hot* lca_sibling_states = lca_sibling ? tree->fitchMajorArrayFor(lca_sibling) : nullptr;
+        const nuc_one_hot* lca_states = tree->fitchMajorArrayFor(lca);
 
         // parent(lca) info — for propagation above lca
         PhyloNode* lca_parent_sibling = lca_parent ? findOtherChild(lca_parent,
             SPRMutationOps::getParent(lca_parent), lca) : nullptr;
         const nuc_one_hot* lca_parent_sibling_states = lca_parent_sibling
-            ? fitch->getMajorArrayForNode(lca_parent_sibling) : nullptr;
+            ? tree->fitchMajorArrayFor(lca_parent_sibling) : nullptr;
         const nuc_one_hot* lca_parent_states = lca_parent
-            ? fitch->getMajorArrayForNode(lca_parent) : nullptr;
+            ? tree->fitchMajorArrayFor(lca_parent) : nullptr;
 
         std::vector<PathStep> above_lca_parent = buildPath(
             lca_parent, lca_parent ? SPRMutationOps::getParent(lca_parent) : nullptr,
-            nullptr, fitch);
+            nullptr, tree);
 
         // Collect O(M) affected patterns
         std::vector<int> affected;
-        collectDiffs(fitch, src, affected);
-        collectDiffs(fitch, sibling, affected);
-        collectDiffs(fitch, src_parent, affected);
-        for (const auto& step : src_path) collectDiffs(fitch, step.node, affected);
-        collectDiffs(fitch, lca, affected);
+        collectDiffs(tree, src, affected);
+        collectDiffs(tree, sibling, affected);
+        collectDiffs(tree, src_parent, affected);
+        for (const auto& step : src_path) collectDiffs(tree, step.node, affected);
+        collectDiffs(tree, lca, affected);
         local_M = (int)affected.size();
 
         for (int ptn : affected) {
-            int freq = fitch->getPatternFreq(ptn);
+            int freq = tree->fitchPatternFreq(ptn);
             nuc_one_hot src_fitch = src_states[ptn], sibling_fitch = sibling_st[ptn];
             nuc_one_hot sp_fitch = sp_states[ptn];
             int old_sp_penalty = (src_fitch & sibling_fitch) ? 0 : 1;
@@ -354,30 +194,30 @@ static int sparseBinaryDelta(PhyloNode* src, PhyloNode* src_parent,
 
     } else {
         // ========== CASE B2: general ==========
-        std::vector<PathStep> src_path = buildPath(src_parent, grandparent, lca, fitch);
-        std::vector<PathStep> dst_path = buildPath(dst, dst_parent, lca, fitch);
+        std::vector<PathStep> src_path = buildPath(src_parent, grandparent, lca, tree);
+        std::vector<PathStep> dst_path = buildPath(dst, dst_parent, lca, tree);
 
         PhyloNode* src_branch = src_path.empty() ? src_parent : src_path.back().node;
         PhyloNode* dst_branch = dst_path.empty() ? dst : dst_path.back().node;
-        const nuc_one_hot* src_branch_states = fitch->getMajorArrayForNode(src_branch);
-        const nuc_one_hot* dst_branch_states = fitch->getMajorArrayForNode(dst_branch);
+        const nuc_one_hot* src_branch_states = tree->fitchMajorArrayFor(src_branch);
+        const nuc_one_hot* dst_branch_states = tree->fitchMajorArrayFor(dst_branch);
 
-        const nuc_one_hot* lca_states = fitch->getMajorArrayForNode(lca);
+        const nuc_one_hot* lca_states = tree->fitchMajorArrayFor(lca);
         std::vector<PathStep> above_lca = buildPath(
-            lca, SPRMutationOps::getParent(lca), nullptr, fitch);
+            lca, SPRMutationOps::getParent(lca), nullptr, tree);
 
         // Collect O(M) affected patterns
         std::vector<int> affected;
-        collectDiffs(fitch, src, affected);
-        collectDiffs(fitch, sibling, affected);
-        collectDiffs(fitch, src_parent, affected);
-        collectDiffs(fitch, dst, affected);
-        for (const auto& step : src_path) collectDiffs(fitch, step.node, affected);
-        for (const auto& step : dst_path) collectDiffs(fitch, step.node, affected);
+        collectDiffs(tree, src, affected);
+        collectDiffs(tree, sibling, affected);
+        collectDiffs(tree, src_parent, affected);
+        collectDiffs(tree, dst, affected);
+        for (const auto& step : src_path) collectDiffs(tree, step.node, affected);
+        for (const auto& step : dst_path) collectDiffs(tree, step.node, affected);
         local_M = (int)affected.size();
 
         for (int ptn : affected) {
-            int freq = fitch->getPatternFreq(ptn);
+            int freq = tree->fitchPatternFreq(ptn);
             nuc_one_hot src_fitch = src_states[ptn], sibling_fitch = sibling_st[ptn];
             nuc_one_hot dst_fitch = dst_states[ptn], sp_fitch = sp_states[ptn];
 
@@ -457,12 +297,12 @@ int SPRDeltaExact::calculateParsimonyDelta(PhyloNode* src, PhyloNode* src_parent
         return 0;
     }
 
-    // Binary src_parent: use sparse Fitch-propagation approach.
-    // O(M) via precomputed Fitch diffs — only iterates over patterns where
-    // Fitch sets differ on affected edges. M << P for real data.
-    if (num_neighbors == 3 && s_fitch) {
+    if (num_neighbors == 3 && getActiveSPRTree()) {
         return sparseBinaryDelta(src, src_parent, dst, dst_parent);
     }
+
+    assert((num_neighbors != 3 || getActiveSPRTree() == nullptr)
+           && "binary src_parent with active Fitch must use sparse path");
 
     MutationCountChangeCollection mutations = SPRMutationOps::initMutationChange(src, src_parent);
     int parsimony_score_change = 0;
@@ -970,37 +810,7 @@ int SPRDeltaExact::checkMoveProfitableDstNotLCA(PhyloNode* src, PhyloNode* dst,
 }
 
 PhyloNode* SPRDeltaExact::findLCA(PhyloNode* node1, PhyloNode* node2, PhyloTree* tree) {
-    if (!node1 || !node2) return nullptr;
-    if (node1 == node2) return node1;
-
-    if (s_lca_ready &&
-        node1->id < (int)s_first_appearance.size() && s_first_appearance[node1->id] >= 0 &&
-        node2->id < (int)s_first_appearance.size() && s_first_appearance[node2->id] >= 0) {
-        int l = s_first_appearance[node1->id];
-        int r = s_first_appearance[node2->id];
-        int idx = rmq(l, r);
-        return s_euler[idx];
-    }
-
-    int d1, d2;
-    if (!s_node_depth.empty()) {
-        d1 = (node1->id < (int)s_node_depth.size() && s_node_depth[node1->id] >= 0)
-             ? s_node_depth[node1->id] : 0;
-        d2 = (node2->id < (int)s_node_depth.size() && s_node_depth[node2->id] >= 0)
-             ? s_node_depth[node2->id] : 0;
-    } else {
-        d1 = d2 = 0;
-        for (PhyloNode* c = node1; c; c = SPRMutationOps::getParent(c)) d1++;
-        for (PhyloNode* c = node2; c; c = SPRMutationOps::getParent(c)) d2++;
-    }
-
-    PhyloNode* a = node1;
-    PhyloNode* b = node2;
-    while (d1 > d2) { a = SPRMutationOps::getParent(a); d1--; }
-    while (d2 > d1) { b = SPRMutationOps::getParent(b); d2--; }
-    while (a != b) {
-        a = SPRMutationOps::getParent(a);
-        b = SPRMutationOps::getParent(b);
-    }
-    return a;
+    PhyloTree* t = tree ? tree : getActiveSPRTree();
+    if (!t) return nullptr;
+    return t->findLCA(node1, node2);
 }

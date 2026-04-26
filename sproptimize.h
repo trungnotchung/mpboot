@@ -8,7 +8,6 @@ class Node;
 class PhyloTree;
 class PhyloNode;
 class PhyloNeighbor;
-class Fitch;
 
 class SPROptimizer {
 public:
@@ -20,7 +19,7 @@ public:
 
     /** Run SPR rounds at a given radius. Returns score after optimization.
      *  If known_score > 0, skips the initial recompute (caller guarantees fitch state is valid). */
-    int optimizeAtRadius(int radius, Fitch& fitch, bool allow_drift = false, int known_score = 0);
+    int optimizeAtRadius(int radius, bool allow_drift = false, int known_score = 0);
 
 private:
     PhyloTree* tree;

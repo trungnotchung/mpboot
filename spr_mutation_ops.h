@@ -73,8 +73,6 @@ namespace MutationCountChangeUtils {
     bool is_sorted(const MutationCountChangeCollection& collection);
 }
 
-class Fitch;
-
 class SPRMutationOps {
 public:
     /// Initialize src's mutations as count changes.
@@ -104,12 +102,6 @@ public:
 
     /// Get parent node (first neighbor), or nullptr if root.
     static PhyloNode* getParent(PhyloNode* node);
-
-    /// Set the root node pointer. Must be called after orientTreeToRoot().
-    static void setRoot(PhyloNode* root);
-
-    /// Set the Fitch pointer. Must be called after Fitch::run().
-    static void setCustomFitch(Fitch* fitch);
 
     /// Get mutations on edge between node and dad (nullptr = parent edge).
     static std::vector<Mutation>* getMutations(PhyloNode* node, PhyloNode* dad);

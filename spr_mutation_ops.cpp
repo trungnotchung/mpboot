@@ -1,5 +1,6 @@
 #include "spr_mutation_ops.h"
-#include "fitch.h"
+#include "spr_context.h"
+#include "phylotree.h"
 #include "phylonode.h"
 #include <algorithm>
 
@@ -72,25 +73,10 @@ std::vector<Mutation>* SPRMutationOps::getMutations(PhyloNode* node, PhyloNode* 
     return nullptr;
 }
 
-static PhyloNode* s_tree_root = nullptr;
-static Fitch* s_custom_fitch = nullptr;
-
-void SPRMutationOps::setRoot(PhyloNode* root) {
-    s_tree_root = root;
-}
-
-void SPRMutationOps::setCustomFitch(Fitch* fitch) {
-    s_custom_fitch = fitch;
-}
-
 PhyloNode* SPRMutationOps::getParent(PhyloNode* node) {
-    if (!node || node->neighbors.empty()) {
-        return nullptr;
-    }
-    if (node == s_tree_root) {
-        return nullptr;
-    }
-    // After orientTreeToRoot(), neighbors[0] points toward parent
+    PhyloTree* tree = getActiveSPRTree();
+    if (!node || node->neighbors.empty()) return nullptr;
+    if (tree && node == (PhyloNode*)tree->root) return nullptr;
     return (PhyloNode*)node->neighbors[0]->node;
 }
 
@@ -275,7 +261,7 @@ void SPRMutationOps::getParentAlteredRemove(MutationCountChangeCollection& outpu
 
     bool is_binary = false;
     PhyloNode* sibling = nullptr;
-    if (s_custom_fitch) {
+    if (getActiveSPRTree()) {
         int num_children = 0;
         PhyloNode* gp = getParent(parent);
         FOR_NEIGHBOR_IT(parent, gp, nit) {
@@ -302,9 +288,9 @@ void SPRMutationOps::getParentAlteredRemove(MutationCountChangeCollection& outpu
             // But src's Fitch set may be broader (e.g., {C,T} vs parent's {C}).
             // For binary nodes, use src's actual Fitch set from Fitch;
             // for non-binary, old_major is a reasonable approximation.
-            if (is_binary && s_custom_fitch) {
+            if (is_binary && getActiveSPRTree()) {
                 int ptn = parent_mut.compressed_position;
-                effective_src_allele = s_custom_fitch->getMajorForNode(src, ptn);
+                effective_src_allele = getActiveSPRTree()->fitchMajorFor(src, ptn);
             } else {
                 effective_src_allele = old_major;
             }
@@ -321,7 +307,7 @@ void SPRMutationOps::getParentAlteredRemove(MutationCountChangeCollection& outpu
         uint8_t new_major, new_bnd1;
         if (is_binary) {
             int ptn = parent_mut.compressed_position;
-            new_major = s_custom_fitch->getMajorForNode(sibling, ptn);
+            new_major = getActiveSPRTree()->fitchMajorFor(sibling, ptn);
             new_bnd1 = 0;  // only one child remains, no boundary
         } else {
             new_major = computed_major;
@@ -358,10 +344,10 @@ void SPRMutationOps::getParentAlteredRemove(MutationCountChangeCollection& outpu
             // Parent's old major at this position includes src's contribution;
             // after removal, it becomes just sibling's Fitch set.
             // We must emit propagation entries so intermediate/dst-side see them.
-            if (is_binary && s_custom_fitch) {
+            if (is_binary && getActiveSPRTree()) {
                 int ptn = src_mut.compressed_position;
-                uint8_t old_par_major = s_custom_fitch->getMajorForNode(parent, ptn);
-                uint8_t new_par_major = s_custom_fitch->getMajorForNode(sibling, ptn);
+                uint8_t old_par_major = getActiveSPRTree()->fitchMajorFor(parent, ptn);
+                uint8_t new_par_major = getActiveSPRTree()->fitchMajorFor(sibling, ptn);
                 if (new_par_major != old_par_major) {
                     output.emplace_back(
                         src_mut.position,
@@ -402,7 +388,7 @@ void SPRMutationOps::getIntermediateNodesMutations(
 
     bool is_binary = false;
     PhyloNode* sibling = nullptr;
-    if (child_on_path && s_custom_fitch) {
+    if (child_on_path && getActiveSPRTree()) {
         int num_children = 0;
         FOR_NEIGHBOR_IT(node, parent, nit) {
             PhyloNode* child = (PhyloNode*)(*nit)->node;
@@ -524,8 +510,8 @@ void SPRMutationOps::getIntermediateNodesMutations(
                 parent_changes.resize(entries_before);
 
                 int ptn = node_mut->compressed_position;
-                uint8_t A_old = s_custom_fitch->getMajorForNode(child_on_path, ptn);
-                uint8_t B = s_custom_fitch->getMajorForNode(sibling, ptn);
+                uint8_t A_old = getActiveSPRTree()->fitchMajorFor(child_on_path, ptn);
+                uint8_t B = getActiveSPRTree()->fitchMajorFor(sibling, ptn);
                 uint8_t A_new = (A_old & ~dec) | inc;
                 uint8_t new_intersect = A_new & B;
                 uint8_t new_N_major = new_intersect ? new_intersect : (A_new | B);
