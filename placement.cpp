@@ -172,7 +172,8 @@ void placeNewSamplesOntoExistingTree(Params &params) {
 		auto spr_wall_start = std::chrono::high_resolution_clock::now();
 
 		SPROptimizer optimizer(tree);
-		int best_score = optimizer.optimizeTree(params.spr_max_passes, params.spr_max_radius, params.spr_drift_iterations);
+		int best_score = optimizer.optimizeTree(params.spr_max_passes, params.spr_max_radius,
+		                                          params.spr_drift_iterations, params.spr_drift_radius);
 
 		double wall_secs = std::chrono::duration<double>(
 			std::chrono::high_resolution_clock::now() - spr_wall_start).count();

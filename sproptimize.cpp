@@ -17,10 +17,15 @@ using namespace std;
 using namespace std::chrono;
 
 static const int MAX_ROUNDS_PER_RADIUS = 100;
-static const int MAX_DRIFT_ROUNDS = 20;
-static const int DRIFT_STALL_LIMIT = 5;
+static const int MAX_DRIFT_ROUNDS = 3;
+static const int DRIFT_STALL_LIMIT = 2;
 static const int BINARY_NODE_DEGREE = 3;
 static const double CONVERGENCE_THRESHOLD = 0.001;
+// Drift can find tens of thousands of zero-delta candidates per round on large
+// trees, making unbounded drift unusable. Bound each drift iteration's work
+// by both wall time and evaluation count.
+static const double DRIFT_WALL_SECONDS_PER_ITER = 30.0;
+static const int    DRIFT_MAX_EVALS_PER_ROUND   = 50000;
 
 namespace {
 struct OptimizerScratch {
@@ -660,6 +665,8 @@ int SPROptimizer::optimizeAtRadius(int radius, bool allow_drift, int known_score
     int initial_score = cur_score;
     int max_id = tree->fitchMaxNodeId();
 
+    auto loop_start = high_resolution_clock::now();
+
     // Initialize bitset for pattern membership
     bitsetInit(tree->fitchNumPatterns());
 
@@ -681,6 +688,14 @@ int SPROptimizer::optimizeAtRadius(int radius, bool allow_drift, int known_score
     int max_rounds = allow_drift ? MAX_DRIFT_ROUNDS : MAX_ROUNDS_PER_RADIUS;
     int no_improve_count = 0;
     for (int round = 0; round < max_rounds; round++) {
+        if (allow_drift) {
+            double elapsed = duration_cast<milliseconds>(high_resolution_clock::now() - loop_start).count() / 1000.0;
+            if (elapsed > DRIFT_WALL_SECONDS_PER_ITER) {
+                cout << "  Drift wall-clock cap (" << DRIFT_WALL_SECONDS_PER_ITER
+                     << "s) reached after " << round << " rounds; stopping" << endl;
+                break;
+            }
+        }
         vector<SPRCandidate> candidates;
         int moves_evaluated = 0, src_skipped = 0, moves_pruned = 0;
 
@@ -801,10 +816,14 @@ int SPROptimizer::optimizeAtRadius(int radius, bool allow_drift, int known_score
         }
         cur_score = new_score;
 
-        // Recycle deferred moves
+        // Recycle deferred moves (capped: large drift rounds can produce 50k+ deferred,
+        // and re-evaluating all of them dominates total runtime on big trees).
         if (!deferred.empty()) {
             int recycled = 0;
+            const int MAX_RECYCLE = allow_drift ? 1000 : (int)deferred.size();
+            int processed = 0;
             for (auto& dm : deferred) {
+                if (processed++ >= MAX_RECYCLE) break;
                 if (!dm.src || !dm.src_parent || !dm.dst || !dm.dst_parent) continue;
                 if (dm.src_parent->degree() != BINARY_NODE_DEGREE) continue;
 
@@ -841,7 +860,8 @@ int SPROptimizer::optimizeAtRadius(int radius, bool allow_drift, int known_score
     return cur_score;
 }
 
-int SPROptimizer::optimizeTree(int max_passes, int max_radius, int drift_iters) {
+int SPROptimizer::optimizeTree(int max_passes, int max_radius, int drift_iters, int drift_radius) {
+    if (drift_radius <= 0) drift_radius = max_radius;
     setActiveSPRTree(tree);
 
     auto t0 = high_resolution_clock::now();
@@ -909,7 +929,7 @@ int SPROptimizer::optimizeTree(int max_passes, int max_radius, int drift_iters) 
             // State (diffs, orient, depths) is valid from prior pass/iteration
             // Diffs kept current by incremental updateFitchDiffsDirty within optimizeAtRadius.
             int drift_start = tracked_score;
-            int drift_end = optimizeAtRadius(max_radius, true, drift_start);
+            int drift_end = optimizeAtRadius(drift_radius, true, drift_start);
             cout << "Drift " << d + 1 << ": " << drift_start << " -> " << drift_end
                  << " (delta=" << (drift_start - drift_end) << ")" << endl;
 
