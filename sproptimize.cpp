@@ -921,15 +921,15 @@ int SPROptimizer::optimizeTree(int max_passes, int max_radius, int drift_iters, 
         }
     }
 
-    // Drift phase
     if (drift_iters > 0) {
-        cout << "\n=== Drift phase (" << drift_iters << " iterations) ===" << endl;
+        cout << "\n=== Drift phase (" << drift_iters << " iterations, escalating from r="
+             << drift_radius << ") ===" << endl;
         int pre_drift = tracked_score;
+        int cur_drift_radius = drift_radius;
         for (int d = 0; d < drift_iters; d++) {
-            // State (diffs, orient, depths) is valid from prior pass/iteration
-            // Diffs kept current by incremental updateFitchDiffsDirty within optimizeAtRadius.
             int drift_start = tracked_score;
-            int drift_end = optimizeAtRadius(drift_radius, true, drift_start);
+            int drift_end = optimizeAtRadius(cur_drift_radius, true, drift_start);
+            cout << "  (drift radius for this iter: " << cur_drift_radius << ")" << endl;
             cout << "Drift " << d + 1 << ": " << drift_start << " -> " << drift_end
                  << " (delta=" << (drift_start - drift_end) << ")" << endl;
 
@@ -948,9 +948,14 @@ int SPROptimizer::optimizeTree(int max_passes, int max_radius, int drift_iters, 
                  << " (delta=" << (drift_end - after_exploit) << ")" << endl;
 
             tracked_score = after_exploit;
-            if (after_exploit >= drift_start) {
-                cout << "  Drift yielded no new improvement, stopping" << endl;
+            bool no_improve_this_iter = (after_exploit >= drift_start);
+            bool can_escalate = (cur_drift_radius < max_radius);
+            if (no_improve_this_iter && !can_escalate) {
+                cout << "  Drift converged at max radius, stopping" << endl;
                 break;
+            }
+            if (can_escalate) {
+                cur_drift_radius = min(cur_drift_radius * 2, max_radius);
             }
         }
         cout << "Drift phase: " << pre_drift << " -> " << tracked_score
