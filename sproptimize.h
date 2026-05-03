@@ -14,15 +14,18 @@ public:
     SPROptimizer(PhyloTree* tree);
     ~SPROptimizer();
 
-    /** Run full optimization. Returns final parsimony score.
-     *  drift_radius: 0 means "use max_radius" (default). Smaller value (e.g. 4-8) makes
-     *  drift cheaper at the cost of finding fewer plateau-escape moves; useful on large trees. */
     int optimizeTree(int max_passes = 10, int max_radius = 32, int drift_iters = 0,
-                     int drift_radius = 0);
+                     int drift_radius = 0, int ratchet_iters = 0, int ratchet_seed = 42,
+                     int cycles = 1, int sector_size = 0, int sector_count = 8,
+                     int sector_seed = 42, int ratchet_runs = 1);
 
-    /** Run SPR rounds at a given radius. Returns score after optimization.
-     *  If known_score > 0, skips the initial recompute (caller guarantees fitch state is valid). */
-    int optimizeAtRadius(int radius, bool allow_drift = false, int known_score = 0);
+    int optimizeSectorial(int K_leaves, int n_sectors, int seed,
+                           int max_radius, double wall_seconds = 0.0,
+                           int known_score = 0);
+
+    int optimizeAtRadius(int radius, bool allow_drift = false, int known_score = 0,
+                          double wall_seconds = 0.0,
+                          const std::vector<bool>* sector_member = nullptr);
 
 private:
     PhyloTree* tree;

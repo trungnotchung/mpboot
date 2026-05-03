@@ -12,6 +12,8 @@
 #include <algorithm>
 #include <cassert>
 #include <iomanip>
+#include <random>
+#include <cmath>
 
 using namespace std;
 using namespace std::chrono;
@@ -21,11 +23,12 @@ static const int MAX_DRIFT_ROUNDS = 3;
 static const int DRIFT_STALL_LIMIT = 2;
 static const int BINARY_NODE_DEGREE = 3;
 static const double CONVERGENCE_THRESHOLD = 0.001;
-// Drift can find tens of thousands of zero-delta candidates per round on large
-// trees, making unbounded drift unusable. Bound each drift iteration's work
-// by both wall time and evaluation count.
 static const double DRIFT_WALL_SECONDS_PER_ITER = 30.0;
-static const int    DRIFT_MAX_EVALS_PER_ROUND   = 50000;
+static const double RATCHET_WALL_SECONDS_PER_ITER = 30.0;
+static const double RATCHET_TOTAL_WALL_SECONDS    = 60.0;
+static const double OPTIMIZER_TOTAL_WALL_SECONDS  = 120.0;
+static const double RATCHET_INV_TEMPERATURE = 2.0;
+static const int    RATCHET_ZERO_ACCEPT_PCT = 50;
 
 namespace {
 struct OptimizerScratch {
@@ -539,6 +542,10 @@ struct DFSContext {
     int best_delta;
     const nuc_one_hot* src_states;
     bool allow_drift;
+    bool wall_active;
+    std::chrono::high_resolution_clock::time_point wall_deadline;
+    bool* wall_dfs_hit;
+    const std::vector<bool>* sector_member;
 };
 
 // Branch-and-bound: estimate best possible delta in subtree rooted at `node`.
@@ -556,6 +563,16 @@ static int computeSubtreeBound(const DFSContext& ctx, PhyloNode* node, int paren
 }
 
 static void searchDestinations(const DFSContext& ctx, PhyloNode* node, PhyloNode* from, int dist, int parent_delta) {
+    if (ctx.wall_active) {
+        if (*ctx.wall_dfs_hit) return;
+        if (std::chrono::high_resolution_clock::now() > ctx.wall_deadline) {
+            *ctx.wall_dfs_hit = true;
+            return;
+        }
+    }
+    if (ctx.sector_member &&
+        (node->id < 0 || node->id >= (int)ctx.sector_member->size() ||
+         !(*ctx.sector_member)[node->id])) return;
     if ((*ctx.dfs_visited)[node->id]) return;
     (*ctx.dfs_visited)[node->id] = true;
     ctx.dfs_visited_ids->push_back(node->id);
@@ -660,12 +677,20 @@ static set<PhyloNode*> collectDirtyNodesWithAncestors(const vector<SPRCandidate>
     return dirty;
 }
 
-int SPROptimizer::optimizeAtRadius(int radius, bool allow_drift, int known_score) {
+int SPROptimizer::optimizeAtRadius(int radius, bool allow_drift, int known_score,
+                                     double wall_seconds,
+                                     const std::vector<bool>* sector_member) {
     int cur_score = (known_score > 0) ? known_score : tree->fitchRecomputeWithDiffs();
     int initial_score = cur_score;
     int max_id = tree->fitchMaxNodeId();
 
     auto loop_start = high_resolution_clock::now();
+    auto wall_exceeded = [&]() {
+        if (wall_seconds <= 0.0) return false;
+        double el = duration_cast<milliseconds>(
+            high_resolution_clock::now() - loop_start).count() / 1000.0;
+        return el > wall_seconds;
+    };
 
     // Initialize bitset for pattern membership
     bitsetInit(tree->fitchNumPatterns());
@@ -696,14 +721,29 @@ int SPROptimizer::optimizeAtRadius(int radius, bool allow_drift, int known_score
                 break;
             }
         }
+        if (wall_exceeded()) {
+            cout << "  Wall budget (" << wall_seconds
+                 << "s) reached after " << round << " rounds; stopping" << endl;
+            break;
+        }
         vector<SPRCandidate> candidates;
         int moves_evaluated = 0, src_skipped = 0, moves_pruned = 0;
+        int wall_break_in_src_loop = 0;
+        bool dfs_wall_hit = false;
+
+        auto in_sector = [&](int id) -> bool {
+            return !sector_member ||
+                   (id >= 0 && id < (int)sector_member->size() && (*sector_member)[id]);
+        };
 
         for (PhyloNode* src : all_nodes) {
+            if (wall_exceeded()) { wall_break_in_src_loop = 1; break; }
             if (src == tree->root || src->degree() < 2) continue;
+            if (!in_sector(src->id)) continue;
 
             PhyloNode* src_parent = getParent(src);
             if (!src_parent || src_parent->degree() != BINARY_NODE_DEGREE) continue;
+            if (!in_sector(src_parent->id)) continue;
 
             if (has_dirty &&
                 !isNeighborhoodDirty(src, dirty_check_radius, dirty_nodes, max_id)) {
@@ -734,9 +774,19 @@ int SPROptimizer::optimizeAtRadius(int radius, bool allow_drift, int known_score
             DFSContext dfs_ctx = {&state, tree, src, src_parent, sibling1, sibling2,
                                   &candidates, &dfs_visited, &dfs_visited_ids,
                                   radius, &moves_evaluated, &moves_pruned,
-                                  0, tree->fitchMajorArrayFor(src), allow_drift};
+                                  0, tree->fitchMajorArrayFor(src), allow_drift,
+                                  /*wall_active=*/(wall_seconds > 0.0),
+                                  /*wall_deadline=*/loop_start + std::chrono::milliseconds(
+                                      (long long)(wall_seconds * 1000.0)),
+                                  /*wall_dfs_hit=*/&dfs_wall_hit,
+                                  /*sector_member=*/sector_member};
             searchDestinations(dfs_ctx, sibling1, src_parent, 0, 0);
             searchDestinations(dfs_ctx, sibling2, src_parent, 0, 0);
+            if (dfs_wall_hit) {
+                wall_break_in_src_loop = 1;
+                bitsetClear();
+                break;
+            }
 
             // Clear bitset fully for next source
             bitsetClear();
@@ -747,9 +797,12 @@ int SPROptimizer::optimizeAtRadius(int radius, bool allow_drift, int known_score
                  << moves_evaluated << " eval";
             if (moves_pruned > 0) cout << ", " << moves_pruned << " pruned";
             if (src_skipped > 0) cout << ", " << src_skipped << " skip";
+            if (wall_break_in_src_loop) cout << " [WALL_BREAK]";
             cout << ")" << endl;
             break;
         }
+        // If wall budget hit mid-src-loop, apply what we collected and exit.
+        bool break_after_round = (wall_break_in_src_loop != 0);
 
         vector<SPRCandidate> deferred;
         vector<SPRCandidate> selected = selectMoves(candidates, max_id, &deferred);
@@ -801,6 +854,12 @@ int SPROptimizer::optimizeAtRadius(int radius, bool allow_drift, int known_score
 
         markDirty(selected, dirty_nodes, (int)all_nodes.size());
         has_dirty = true;
+
+        if (break_after_round) {
+            cur_score = new_score;
+            cout << "  Wall budget exceeded mid-round, finishing this round and stopping" << endl;
+            break;
+        }
 
         if (allow_drift) {
             if (new_score < cur_score) {
@@ -860,7 +919,123 @@ int SPROptimizer::optimizeAtRadius(int radius, bool allow_drift, int known_score
     return cur_score;
 }
 
-int SPROptimizer::optimizeTree(int max_passes, int max_radius, int drift_iters, int drift_radius) {
+static void buildSector(PhyloTree* tree, int max_id, PhyloNode* center,
+                        int target_leaves, std::vector<bool>& member_out) {
+    member_out.assign(max_id + 1, false);
+    if (!center || center->id < 0 || center->id > max_id) return;
+    std::queue<PhyloNode*> q;
+    q.push(center);
+    member_out[center->id] = true;
+    int leaves_in = 0;
+    if (center->isLeaf()) leaves_in = 1;
+    while (!q.empty() && leaves_in < target_leaves) {
+        PhyloNode* node = q.front(); q.pop();
+        FOR_NEIGHBOR_IT(node, nullptr, it) {
+            PhyloNode* child = (PhyloNode*)(*it)->node;
+            if (child->id < 0 || child->id > max_id) continue;
+            if (member_out[child->id]) continue;
+            member_out[child->id] = true;
+            if (child->isLeaf()) leaves_in++;
+            else q.push(child);
+            if (leaves_in >= target_leaves) break;
+        }
+    }
+}
+
+int SPROptimizer::optimizeSectorial(int K_leaves, int n_sectors, int seed,
+                                      int max_radius, double wall_seconds,
+                                      int known_score) {
+    int max_id = tree->fitchMaxNodeId();
+    int cur_score = (known_score > 0) ? known_score : tree->fitchRecomputeWithDiffs();
+    int initial = cur_score;
+
+    cout << "\n=== Sectorial phase (K=" << K_leaves
+         << " leaves x " << n_sectors << " sectors) ===" << endl;
+
+    std::vector<PhyloNode*> all_nodes = collectAllNodes(tree, max_id);
+    std::mt19937 rng((unsigned)seed);
+
+    auto phase_start = high_resolution_clock::now();
+    auto phase_elapsed_s = [&]() {
+        return duration_cast<milliseconds>(
+            high_resolution_clock::now() - phase_start).count() / 1000.0;
+    };
+
+    int improved = 0;
+    for (int s = 0; s < n_sectors; s++) {
+        if (wall_seconds > 0.0 && phase_elapsed_s() > wall_seconds) {
+            cout << "  Sector wall cap reached after " << s << " sectors" << endl;
+            break;
+        }
+
+        PhyloNode* center = nullptr;
+        for (int attempt = 0; attempt < 32 && !center; attempt++) {
+            int idx = (int)(rng() % all_nodes.size());
+            PhyloNode* cand = all_nodes[idx];
+            if (cand && cand != tree->root && !cand->isLeaf()) center = cand;
+        }
+        if (!center) continue;
+
+        std::vector<bool> sector_member;
+        buildSector(tree, max_id, center, K_leaves, sector_member);
+
+        int n_in_sector = 0;
+        for (bool b : sector_member) if (b) n_in_sector++;
+        if (n_in_sector < 4) continue;
+
+        std::vector<NeighborSave> saves;
+        saves.reserve(all_nodes.size() * 3);
+        for (PhyloNode* n : all_nodes) saveTopology(n, saves);
+        std::vector<nuc_one_hot> fitch_major_snap = tree->fitchSaveNodeMajor();
+        PhyloTree::FitchAuxSnapshot fitch_aux_snap = tree->fitchSaveAux();
+        int pre_sector_score = cur_score;
+
+        double remaining_phase = (wall_seconds > 0.0)
+            ? std::max(0.5, wall_seconds - phase_elapsed_s()) : 0.0;
+        double per_sector_wall = (remaining_phase > 0.0)
+            ? (remaining_phase / std::max(1, n_sectors - s)) : 0.0;
+
+        int sector_radius = std::min(max_radius, K_leaves);
+        int sector_score = pre_sector_score;
+        sector_score = optimizeAtRadius(sector_radius, /*allow_drift=*/true,
+                                         sector_score, per_sector_wall,
+                                         &sector_member);
+        for (int r = 1; r <= sector_radius; r *= 2) {
+            int after = optimizeAtRadius(std::min(r, sector_radius), false,
+                                          sector_score, per_sector_wall, &sector_member);
+            if (after < sector_score) sector_score = after;
+            if (r >= sector_radius) break;
+        }
+
+        int global_after = tree->fitchRecomputeWithDiffs();
+        orientTreeToRoot(tree, max_id);
+        SPRDeltaExact::precomputeDepths(tree);
+        if (global_after < cur_score) {
+            cout << "  Sector " << (s + 1) << " (size=" << n_in_sector
+                 << "): " << cur_score << " -> " << global_after << endl;
+            cur_score = global_after;
+            improved++;
+        } else {
+            undoTopology(saves);
+            tree->fitchRestoreNodeMajor(fitch_major_snap);
+            tree->fitchRestoreAux(fitch_aux_snap);
+            orientTreeToRoot(tree, max_id);
+            SPRDeltaExact::precomputeDepths(tree);
+        }
+    }
+
+    cout << "Sectorial phase: " << initial << " -> " << cur_score
+         << " (delta=" << (initial - cur_score)
+         << ", " << improved << "/" << n_sectors << " sectors improved)" << endl;
+    return cur_score;
+}
+
+int SPROptimizer::optimizeTree(int max_passes, int max_radius, int drift_iters, int drift_radius,
+                                int ratchet_iters, int ratchet_seed, int cycles,
+                                int sector_size, int sector_count, int sector_seed,
+                                int ratchet_runs) {
+    if (cycles < 1) cycles = 1;
+    if (ratchet_runs < 1) ratchet_runs = 1;
     if (drift_radius <= 0) drift_radius = max_radius;
     setActiveSPRTree(tree);
 
@@ -874,12 +1049,9 @@ int SPROptimizer::optimizeTree(int max_passes, int max_radius, int drift_iters, 
          << ", drift=" << drift_iters
          << ", init=" << duration_cast<milliseconds>(t1-t0).count() << "ms)" << endl;
 
-    // After fitch.run(), state (node_major, diffs, orient, depths) is valid.
-    // Track score to avoid redundant recomputeWithDiffs at each pass start.
     int tracked_score = initial_score;
     int max_id = tree->fitchMaxNodeId();
 
-    // Initial orient + depths (only needed once before first pass)
     orientTreeToRoot(tree, max_id);
     SPRDeltaExact::precomputeDepths(tree);
 
@@ -921,7 +1093,25 @@ int SPROptimizer::optimizeTree(int max_passes, int max_radius, int drift_iters, 
         }
     }
 
-    if (drift_iters > 0) {
+    int pre_cycle_overall = tracked_score;
+    auto optimizer_total_start = high_resolution_clock::now();
+    auto optimizer_total_elapsed = [&]() {
+        return duration_cast<milliseconds>(
+            high_resolution_clock::now() - optimizer_total_start).count() / 1000.0;
+    };
+    for (int cycle = 0; cycle < cycles; cycle++) {
+        if (optimizer_total_elapsed() > OPTIMIZER_TOTAL_WALL_SECONDS) {
+            cout << "\nOptimizer total wall cap (" << OPTIMIZER_TOTAL_WALL_SECONDS
+                 << "s) reached after " << cycle << " cycles, stopping" << endl;
+            break;
+        }
+        int cycle_start_score = tracked_score;
+        if (cycles > 1) {
+            cout << "\n========== Cycle " << (cycle + 1) << "/" << cycles
+                 << " (start=" << cycle_start_score << ") ==========" << endl;
+        }
+
+    if (drift_iters > 0 && cycle == 0) {
         cout << "\n=== Drift phase (" << drift_iters << " iterations, escalating from r="
              << drift_radius << ") ===" << endl;
         int pre_drift = tracked_score;
@@ -960,6 +1150,205 @@ int SPROptimizer::optimizeTree(int max_passes, int max_radius, int drift_iters, 
         }
         cout << "Drift phase: " << pre_drift << " -> " << tracked_score
              << " (total delta=" << (pre_drift - tracked_score) << ")" << endl;
+    }
+
+    if (ratchet_iters > 0) {
+        cout << "\n=== Ratchet phase (" << ratchet_iters << " iters"
+             << (ratchet_runs > 1 ? " x " + std::to_string(ratchet_runs) + " runs" : "")
+             << ", seed=" << ratchet_seed << ") ===" << endl;
+        int pre_ratchet = tracked_score;
+
+        std::vector<int> orig_freq;
+        tree->fitchSnapshotPatternFreq(orig_freq);
+        int nptn = (int)orig_freq.size();
+
+        vector<PhyloNode*> all_nodes_for_save = collectAllNodes(tree, max_id);
+        auto saveAll = [&](vector<NeighborSave>& out) {
+            out.clear();
+            out.reserve(all_nodes_for_save.size() * 3);
+            for (PhyloNode* n : all_nodes_for_save) saveTopology(n, out);
+        };
+
+        vector<NeighborSave> pre_ratchet_topology;
+        saveAll(pre_ratchet_topology);
+        std::vector<nuc_one_hot> pre_ratchet_major = tree->fitchSaveNodeMajor();
+        PhyloTree::FitchAuxSnapshot pre_ratchet_aux = tree->fitchSaveAux();
+
+        vector<NeighborSave> overall_best_topology = pre_ratchet_topology;
+        std::vector<nuc_one_hot> overall_best_major = pre_ratchet_major;
+        PhyloTree::FitchAuxSnapshot overall_best_aux = pre_ratchet_aux;
+        int overall_best_score = tracked_score;
+
+        for (int run = 0; run < ratchet_runs; run++) {
+            if (ratchet_runs > 1 && run > 0) {
+                cout << "-- Run " << (run + 1) << "/" << ratchet_runs << " --" << endl;
+                undoTopology(pre_ratchet_topology);
+                tree->fitchRestoreNodeMajor(pre_ratchet_major);
+                tree->fitchRestoreAux(pre_ratchet_aux);
+                orientTreeToRoot(tree, max_id);
+                SPRDeltaExact::precomputeDepths(tree);
+                tracked_score = pre_ratchet;
+            }
+
+        vector<NeighborSave> best_saves;
+        saveAll(best_saves);
+        int best_score = tracked_score;
+
+        std::mt19937 rng((unsigned)(ratchet_seed + cycle * 1009 + run * 101));
+
+        bool tree_at_best = true;
+
+        auto ratchet_phase_start = high_resolution_clock::now();
+        auto phase_elapsed_s = [&]() {
+            return duration_cast<milliseconds>(
+                high_resolution_clock::now() - ratchet_phase_start).count() / 1000.0;
+        };
+
+        for (int it = 0; it < ratchet_iters; it++) {
+            if (phase_elapsed_s() > RATCHET_TOTAL_WALL_SECONDS) {
+                cout << "Ratchet phase wall cap (" << RATCHET_TOTAL_WALL_SECONDS
+                     << "s) reached after " << it << " iters, stopping" << endl;
+                break;
+            }
+            auto iter_start = high_resolution_clock::now();
+            auto iter_elapsed_s = [&]() {
+                return duration_cast<milliseconds>(
+                    high_resolution_clock::now() - iter_start).count() / 1000.0;
+            };
+            int reweighted = 0;
+            for (int ptn = 0; ptn < nptn; ptn++) {
+                if ((rng() & 3u) == 0u) {
+                    tree->fitchScalePatternFreq(ptn, 2);
+                    reweighted++;
+                }
+            }
+
+            auto remaining_budget = [&]() -> double {
+                double r = RATCHET_WALL_SECONDS_PER_ITER - iter_elapsed_s();
+                return (r < 0.5) ? 0.5 : r;
+            };
+
+            int weighted_score = tree->fitchRecomputeWithDiffs();
+            orientTreeToRoot(tree, max_id);
+            SPRDeltaExact::precomputeDepths(tree);
+            bool capped = false;
+            for (int r = 1; ; r *= 2) {
+                r = min(r, max_radius);
+                int after = optimizeAtRadius(r, false, weighted_score, remaining_budget());
+                if (after < weighted_score) weighted_score = after;
+                if (r == max_radius) break;
+                if (iter_elapsed_s() > RATCHET_WALL_SECONDS_PER_ITER) { capped = true; break; }
+            }
+            if (!capped && drift_radius > 0 &&
+                iter_elapsed_s() <= RATCHET_WALL_SECONDS_PER_ITER) {
+                int drift_after = optimizeAtRadius(drift_radius, true, weighted_score, remaining_budget());
+                if (drift_after <= weighted_score) weighted_score = drift_after;
+            }
+
+            tree->fitchRestorePatternFreq(orig_freq);
+            int unweighted_score = tree->fitchRecomputeWithDiffs();
+            orientTreeToRoot(tree, max_id);
+            SPRDeltaExact::precomputeDepths(tree);
+
+            for (int r = 1; ; r *= 2) {
+                r = min(r, max_radius);
+                int after = optimizeAtRadius(r, false, unweighted_score, remaining_budget());
+                if (after < unweighted_score) unweighted_score = after;
+                if (r == max_radius) break;
+                if (iter_elapsed_s() > RATCHET_WALL_SECONDS_PER_ITER) { capped = true; break; }
+            }
+
+            cout << "Ratchet " << (it + 1) << ": reweighted=" << reweighted
+                 << " unweighted=" << unweighted_score
+                 << " best=" << best_score
+                 << (capped ? " [CAPPED]" : "") << endl;
+
+            int delta = unweighted_score - best_score;
+            bool accept;
+            if (delta < 0) {
+                accept = true;
+            } else if (delta == 0) {
+                accept = ((int)(rng() % 100u) < RATCHET_ZERO_ACCEPT_PCT);
+            } else {
+                double prob = std::exp(-(double)delta * RATCHET_INV_TEMPERATURE);
+                double draw = (double)rng() / (double)std::mt19937::max();
+                accept = (draw < prob);
+            }
+
+            if (delta < 0) {
+                best_score = unweighted_score;
+                saveAll(best_saves);
+                tracked_score = unweighted_score;
+                tree_at_best = true;
+            } else if (accept) {
+                tracked_score = unweighted_score;
+                tree_at_best = false;
+            } else {
+                undoTopology(best_saves);
+                tree->fitchRecomputeWithDiffs();
+                orientTreeToRoot(tree, max_id);
+                SPRDeltaExact::precomputeDepths(tree);
+                tracked_score = best_score;
+                tree_at_best = true;
+            }
+        }
+        if (!tree_at_best) {
+            undoTopology(best_saves);
+            tree->fitchRecomputeWithDiffs();
+            orientTreeToRoot(tree, max_id);
+            SPRDeltaExact::precomputeDepths(tree);
+        }
+        if (ratchet_runs > 1) {
+            cout << "Run " << (run + 1) << " result: " << pre_ratchet
+                 << " -> " << best_score << endl;
+        } else {
+            cout << "Ratchet phase: " << pre_ratchet << " -> " << best_score
+                 << " (total delta=" << (pre_ratchet - best_score) << ")" << endl;
+        }
+        tracked_score = best_score;
+
+        if (best_score < overall_best_score) {
+            overall_best_score = best_score;
+            saveAll(overall_best_topology);
+            overall_best_major = tree->fitchSaveNodeMajor();
+            overall_best_aux = tree->fitchSaveAux();
+        }
+        }  // end runs loop
+
+        if (ratchet_runs > 1) {
+            undoTopology(overall_best_topology);
+            tree->fitchRestoreNodeMajor(overall_best_major);
+            tree->fitchRestoreAux(overall_best_aux);
+            orientTreeToRoot(tree, max_id);
+            SPRDeltaExact::precomputeDepths(tree);
+            tracked_score = overall_best_score;
+            cout << "Ratchet best across " << ratchet_runs << " runs: "
+                 << pre_ratchet << " -> " << overall_best_score
+                 << " (delta=" << (pre_ratchet - overall_best_score) << ")" << endl;
+        }
+    }
+
+    if (sector_size > 0 && sector_count > 0) {
+        int sect_seed = sector_seed + cycle * 1009;
+        double sect_wall = OPTIMIZER_TOTAL_WALL_SECONDS / std::max(1, cycles * 2);
+        int after_sect = optimizeSectorial(sector_size, sector_count, sect_seed,
+                                            max_radius, sect_wall, tracked_score);
+        if (after_sect < tracked_score) tracked_score = after_sect;
+    }
+
+        if (cycles > 1) {
+            int cycle_delta = cycle_start_score - tracked_score;
+            cout << "Cycle " << (cycle + 1) << " summary: " << cycle_start_score
+                 << " -> " << tracked_score << " (delta=" << cycle_delta << ")" << endl;
+            if (tracked_score >= cycle_start_score) {
+                cout << "  No improvement this cycle, stopping cycling" << endl;
+                break;
+            }
+        }
+    }  // end cycles loop
+    if (cycles > 1) {
+        cout << "Cycles complete: " << pre_cycle_overall << " -> " << tracked_score
+             << " (total delta=" << (pre_cycle_overall - tracked_score) << ")" << endl;
     }
 
     // Use tracked score — caller will do its own computeParsimony verification
