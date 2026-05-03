@@ -6810,6 +6810,54 @@ PhyloNode* PhyloTree::findLCA(PhyloNode* a, PhyloNode* b) const {
     return x;
 }
 
+static inline uint64_t splitmix64(uint64_t x) {
+    x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ULL;
+    x = (x ^ (x >> 27)) * 0x94d049bb133111ebULL;
+    return x ^ (x >> 31);
+}
+
+void PhyloTree::computeCladeHashes(std::vector<uint64_t>& out) const {
+    int n = fitch_max_node_id + 1;
+    if (n <= 0 || !root) { out.clear(); return; }
+    out.assign(n, 0);
+
+    std::vector<bool> visited(n, false);
+    std::vector<PhyloNode*> bfs_order;
+    bfs_order.reserve(n);
+    std::vector<PhyloNode*> bfs_parent(n, nullptr);
+    std::queue<std::pair<PhyloNode*, PhyloNode*>> bfs;
+    bfs.push({(PhyloNode*)root, nullptr});
+    while (!bfs.empty()) {
+        auto pr = bfs.front(); bfs.pop();
+        PhyloNode* node = pr.first;
+        PhyloNode* parent = pr.second;
+        if (node->id < 0 || node->id >= n || visited[node->id]) continue;
+        visited[node->id] = true;
+        bfs_order.push_back(node);
+        bfs_parent[node->id] = parent;
+        FOR_NEIGHBOR_IT(node, parent, it) {
+            PhyloNode* child = (PhyloNode*)(*it)->node;
+            if (child->id >= 0 && child->id < n && !visited[child->id]) {
+                bfs.push({child, node});
+            }
+        }
+    }
+
+    for (auto it = bfs_order.rbegin(); it != bfs_order.rend(); ++it) {
+        PhyloNode* node = *it;
+        if (node->isLeaf()) {
+            out[node->id] = splitmix64((uint64_t)(node->id + 1));
+        } else {
+            uint64_t h = 0;
+            FOR_NEIGHBOR_IT(node, bfs_parent[node->id], nit) {
+                PhyloNode* child = (PhyloNode*)(*nit)->node;
+                if (child->id >= 0 && child->id < n) h ^= out[child->id];
+            }
+            out[node->id] = h;
+        }
+    }
+}
+
 /****************************************************************************
  LCATable implementation (Euler-tour + sparse-table O(1) RMQ)
  ****************************************************************************/

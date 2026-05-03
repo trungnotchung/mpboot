@@ -1586,6 +1586,22 @@ public:
     const std::vector<std::vector<int>>& fitchPatternToSites() const { return fitch_pattern_to_sites; }
     std::vector<nuc_one_hot> fitchSaveNodeMajor() const { return fitch_node_major; }
     void fitchRestoreNodeMajor(const std::vector<nuc_one_hot>& saved) { fitch_node_major = saved; }
+    struct FitchAuxSnapshot {
+        std::vector<std::vector<int>> diffs;
+        std::vector<int> node_penalty;
+        std::vector<int> subtree_score;
+        int root_side_mutation_count;
+    };
+    FitchAuxSnapshot fitchSaveAux() const {
+        return {fitch_diffs, fitch_node_penalty, fitch_subtree_score,
+                fitch_root_side_mutation_count};
+    }
+    void fitchRestoreAux(const FitchAuxSnapshot& s) {
+        fitch_diffs = s.diffs;
+        fitch_node_penalty = s.node_penalty;
+        fitch_subtree_score = s.subtree_score;
+        fitch_root_side_mutation_count = s.root_side_mutation_count;
+    }
 
     inline int fitchNodeIdx(PhyloNode* node) const {
         if (node->id < 0 || node->id >= (int)fitch_node_index.size()) return -1;
@@ -1609,11 +1625,16 @@ public:
     inline int fitchPatternFreq(int ptn) const { return fitch_ptn_freq[ptn]; }
     inline int fitchPositionForPattern(int ptn) const { return fitch_ptn_position[ptn]; }
     inline int fitchNumPatterns() const { return fitch_nptn; }
+    inline void fitchSnapshotPatternFreq(std::vector<int>& out) const { out = fitch_ptn_freq; }
+    inline void fitchRestorePatternFreq(const std::vector<int>& in) { fitch_ptn_freq = in; }
+    inline void fitchScalePatternFreq(int ptn, int multiplier) { fitch_ptn_freq[ptn] *= multiplier; }
 
     // === LCA query (Euler-tour + sparse-table for O(1) queries) ===
     void buildLCATable();
     PhyloNode* findLCA(PhyloNode* a, PhyloNode* b) const;
     const LCATable& getLCATable() const { return lca_table; }
+
+    void computeCladeHashes(std::vector<uint64_t>& out) const;
 
     // After orientTreeToRoot(), neighbors[0] points toward parent. Returns nullptr
     // for the root or for a null/empty-neighbors node.
