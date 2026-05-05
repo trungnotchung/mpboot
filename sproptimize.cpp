@@ -26,10 +26,6 @@ static const int DRIFT_MAX_RADIUS = 16;
 static const int DRIFT_ITER_STALL_LIMIT = 3;
 static const int BINARY_NODE_DEGREE = 3;
 static const double CONVERGENCE_THRESHOLD = 0.001;
-static const double DRIFT_WALL_SECONDS_PER_ITER   = 30.0;
-static const double RATCHET_WALL_SECONDS_PER_ITER = 30.0;
-static const double RATCHET_TOTAL_WALL_SECONDS    = 60.0;
-static const double OPTIMIZER_TOTAL_WALL_SECONDS  = 120.0;
 static const double RATCHET_INV_TEMPERATURE = 2.0;
 static const int    RATCHET_ZERO_ACCEPT_PCT = 50;
 
@@ -807,14 +803,6 @@ int SPROptimizer::optimizeAtRadius(int radius, bool allow_drift, int known_score
     int max_rounds = allow_drift ? MAX_DRIFT_ROUNDS : MAX_ROUNDS_PER_RADIUS;
     int no_improve_count = 0;
     for (int round = 0; round < max_rounds; round++) {
-        if (allow_drift) {
-            double elapsed = duration_cast<milliseconds>(high_resolution_clock::now() - loop_start).count() / 1000.0;
-            if (elapsed > DRIFT_WALL_SECONDS_PER_ITER) {
-                cout << "  Drift wall-clock cap (" << DRIFT_WALL_SECONDS_PER_ITER
-                     << "s) reached after " << round << " rounds; stopping" << endl;
-                break;
-            }
-        }
         if (wall_exceeded()) {
             cout << "  Wall budget (" << wall_seconds
                  << "s) reached after " << round << " rounds; stopping" << endl;
@@ -1131,10 +1119,20 @@ int SPROptimizer::optimizeSectorial(int K_leaves, int n_sectors, int seed,
     return cur_score;
 }
 
-int SPROptimizer::optimizeTree(int max_passes, int max_radius, int drift_iters, int drift_radius,
-                                int ratchet_iters, int ratchet_seed, int cycles,
-                                int sector_size, int sector_count, int sector_seed,
-                                int ratchet_runs) {
+int SPROptimizer::optimizeTree(const SPROptimizeOptions& opts) {
+    int max_passes    = opts.max_passes;
+    int max_radius    = opts.max_radius;
+    int drift_iters   = opts.drift_iters;
+    int drift_radius  = opts.drift_radius;
+    int ratchet_iters = opts.ratchet_iters;
+    int ratchet_seed  = opts.ratchet_seed;
+    int ratchet_runs  = opts.ratchet_runs;
+    int cycles        = opts.cycles;
+    int sector_size   = opts.sector_size;
+    int sector_count  = opts.sector_count;
+    int sector_seed   = opts.sector_seed;
+    double wall_seconds = opts.wall_seconds;
+
     if (cycles < 1) cycles = 1;
     if (ratchet_runs < 1) ratchet_runs = 1;
     if (drift_radius <= 0) drift_radius = max_radius;
@@ -1202,8 +1200,8 @@ int SPROptimizer::optimizeTree(int max_passes, int max_radius, int drift_iters, 
             high_resolution_clock::now() - optimizer_total_start).count() / 1000.0;
     };
     for (int cycle = 0; cycle < cycles; cycle++) {
-        if (optimizer_total_elapsed() > OPTIMIZER_TOTAL_WALL_SECONDS) {
-            cout << "\nOptimizer total wall cap (" << OPTIMIZER_TOTAL_WALL_SECONDS
+        if (wall_seconds > 0.0 && optimizer_total_elapsed() > wall_seconds) {
+            cout << "\nOptimizer total wall cap (" << wall_seconds
                  << "s) reached after " << cycle << " cycles, stopping" << endl;
             break;
         }
@@ -1259,23 +1257,16 @@ int SPROptimizer::optimizeTree(int max_passes, int max_radius, int drift_iters, 
 
             bool tree_at_best = true;
 
-            auto ratchet_phase_start = high_resolution_clock::now();
-            auto phase_elapsed_s = [&]() {
-                return duration_cast<milliseconds>(
-                    high_resolution_clock::now() - ratchet_phase_start).count() / 1000.0;
+            auto wall_exceeded = [&]() {
+                return wall_seconds > 0.0 && optimizer_total_elapsed() > wall_seconds;
             };
 
             for (int it = 0; it < ratchet_iters; it++) {
-                if (phase_elapsed_s() > RATCHET_TOTAL_WALL_SECONDS) {
-                    cout << "Ratchet phase wall cap (" << RATCHET_TOTAL_WALL_SECONDS
-                        << "s) reached after " << it << " iters, stopping" << endl;
+                if (wall_exceeded()) {
+                    cout << "Ratchet stopping at iter " << it
+                         << ": optimizer wall cap (" << wall_seconds << "s) reached" << endl;
                     break;
                 }
-                auto iter_start = high_resolution_clock::now();
-                auto iter_elapsed_s = [&]() {
-                    return duration_cast<milliseconds>(
-                        high_resolution_clock::now() - iter_start).count() / 1000.0;
-                };
                 int reweighted = 0;
                 for (int ptn = 0; ptn < nptn; ptn++) {
                     if ((rng() & 3u) == 0u) {
@@ -1285,7 +1276,8 @@ int SPROptimizer::optimizeTree(int max_passes, int max_radius, int drift_iters, 
                 }
 
                 auto remaining_budget = [&]() -> double {
-                    double r = RATCHET_WALL_SECONDS_PER_ITER - iter_elapsed_s();
+                    if (wall_seconds <= 0.0) return 0.0;  // no cap
+                    double r = wall_seconds - optimizer_total_elapsed();
                     return (r < 0.5) ? 0.5 : r;
                 };
 
@@ -1298,10 +1290,9 @@ int SPROptimizer::optimizeTree(int max_passes, int max_radius, int drift_iters, 
                     int after = optimizeAtRadius(r, false, weighted_score, remaining_budget());
                     if (after < weighted_score) weighted_score = after;
                     if (r == max_radius) break;
-                    if (iter_elapsed_s() > RATCHET_WALL_SECONDS_PER_ITER) { capped = true; break; }
+                    if (wall_exceeded()) { capped = true; break; }
                 }
-                if (!capped && drift_radius > 0 &&
-                    iter_elapsed_s() <= RATCHET_WALL_SECONDS_PER_ITER) {
+                if (!capped && drift_radius > 0 && !wall_exceeded()) {
                     int drift_after = optimizeAtRadius(drift_radius, true, weighted_score, remaining_budget());
                     if (drift_after <= weighted_score) weighted_score = drift_after;
                 }
@@ -1316,7 +1307,7 @@ int SPROptimizer::optimizeTree(int max_passes, int max_radius, int drift_iters, 
                     int after = optimizeAtRadius(r, false, unweighted_score, remaining_budget());
                     if (after < unweighted_score) unweighted_score = after;
                     if (r == max_radius) break;
-                    if (iter_elapsed_s() > RATCHET_WALL_SECONDS_PER_ITER) { capped = true; break; }
+                    if (wall_exceeded()) { capped = true; break; }
                 }
 
                 cout << "Ratchet " << (it + 1) << ": reweighted=" << reweighted
@@ -1391,7 +1382,8 @@ int SPROptimizer::optimizeTree(int max_passes, int max_radius, int drift_iters, 
 
         if (sector_size > 0 && sector_count > 0) {
             int sect_seed = sector_seed + cycle * 1009;
-            double sect_wall = OPTIMIZER_TOTAL_WALL_SECONDS / std::max(1, cycles * 2);
+            double sect_wall = (wall_seconds > 0.0)
+                ? wall_seconds / std::max(1, cycles * 2) : 0.0;
             int after_sect = optimizeSectorial(sector_size, sector_count, sect_seed,
                                                 max_radius, sect_wall, tracked_score);
             if (after_sect < tracked_score) tracked_score = after_sect;
@@ -1403,9 +1395,15 @@ int SPROptimizer::optimizeTree(int max_passes, int max_radius, int drift_iters, 
             int pre_drift = tracked_score;
             int cur_drift_radius = drift_radius;
             int stall = 0;
+            auto drift_remaining_budget = [&]() -> double {
+                if (wall_seconds <= 0.0) return 0.0;  // no cap
+                double r = wall_seconds - optimizer_total_elapsed();
+                return (r < 0.5) ? 0.5 : r;
+            };
             for (int d = 0; d < drift_iters; d++) {
                 int drift_start = tracked_score;
-                int drift_end = optimizeAtRadius(cur_drift_radius, true, drift_start);
+                int drift_end = optimizeAtRadius(cur_drift_radius, true, drift_start,
+                                                  drift_remaining_budget());
                 cout << "  (drift radius for this iter: " << cur_drift_radius << ")" << endl;
                 cout << "Drift " << d + 1 << ": " << drift_start << " -> " << drift_end
                     << " (delta=" << (drift_start - drift_end) << ")" << endl;
@@ -1413,7 +1411,8 @@ int SPROptimizer::optimizeTree(int max_passes, int max_radius, int drift_iters, 
                 int exploit_cur = drift_end;
                 for (int r = 1; ; r *= 2) {
                     r = min(r, max_radius);
-                    int after = optimizeAtRadius(r, false, exploit_cur);
+                    int after = optimizeAtRadius(r, false, exploit_cur,
+                                                   drift_remaining_budget());
                     if (after >= exploit_cur && r < max_radius) break;
                     if (after < exploit_cur) exploit_cur = after;
                     if (r == max_radius) break;

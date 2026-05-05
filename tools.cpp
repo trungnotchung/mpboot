@@ -809,6 +809,7 @@ void parseArg(int argc, char *argv[], Params &params) {
     params.spr_sector_size = 0;         // Sectorial disabled by default
     params.spr_sector_count = 8;
     params.spr_sector_seed = 42;
+    params.spr_wall_seconds = 0.0;      // Optimizer wall-clock cap (<=0 = no cap, default unbounded)
     params.test_site_pars = false;
     params.auto_vectorize = false;
     params.sort_alignment = true;
@@ -2560,6 +2561,13 @@ void parseArg(int argc, char *argv[], Params &params) {
                 if (cnt >= argc)
                     throw "Use -spr_sector_seed <seed>";
             	params.spr_sector_seed = convert_int(argv[cnt]);
+            	continue;
+            }
+			if(strcmp(argv[cnt], "-spr_wall_seconds") == 0){
+            	cnt++;
+                if (cnt >= argc)
+                    throw "Use -spr_wall_seconds <seconds, <=0 disables>";
+            	params.spr_wall_seconds = convert_double(argv[cnt]);
             	continue;
             }
 			if(strcmp(argv[cnt], "-sitepars") == 0){

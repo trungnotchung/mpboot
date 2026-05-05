@@ -1572,6 +1572,7 @@ struct Params {
     int spr_sector_size;            // Sectorial search: K leaves per sector (0 = disabled)
     int spr_sector_count;           // Sectors per cycle
     int spr_sector_seed;            // RNG seed for sector center picker
+    double spr_wall_seconds;        // Total optimizer wall-clock cap in seconds (<=0 = no cap)
 
     /*
      * Diep: option for comparing PLL site parsimony and IQTree
