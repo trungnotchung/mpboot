@@ -6810,6 +6810,11 @@ PhyloNode* PhyloTree::findLCA(PhyloNode* a, PhyloNode* b) const {
     return x;
 }
 
+/**
+ * SplitMix64 finalizer for scrambling small integer inputs.
+ * @param x Integer to hash.
+ * @return Scrambled 64-bit value.
+ */
 static inline uint64_t splitmix64(uint64_t x) {
     x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ULL;
     x = (x ^ (x >> 27)) * 0x94d049bb133111ebULL;

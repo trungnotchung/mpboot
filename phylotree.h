@@ -1586,16 +1586,28 @@ public:
     const std::vector<std::vector<int>>& fitchPatternToSites() const { return fitch_pattern_to_sites; }
     std::vector<nuc_one_hot> fitchSaveNodeMajor() const { return fitch_node_major; }
     void fitchRestoreNodeMajor(const std::vector<nuc_one_hot>& saved) { fitch_node_major = saved; }
+    /**
+     * Snapshot of derived Fitch state for SPR ratchet/sectorial undo.
+     */
     struct FitchAuxSnapshot {
         std::vector<std::vector<int>> diffs;
         std::vector<int> node_penalty;
         std::vector<int> subtree_score;
         int root_side_mutation_count;
     };
+
+    /**
+     * @return Snapshot of the auxiliary Fitch state.
+     */
     FitchAuxSnapshot fitchSaveAux() const {
         return {fitch_diffs, fitch_node_penalty, fitch_subtree_score,
                 fitch_root_side_mutation_count};
     }
+
+    /**
+     * Restores auxiliary Fitch state from a snapshot.
+     * @param s Snapshot from a prior fitchSaveAux().
+     */
     void fitchRestoreAux(const FitchAuxSnapshot& s) {
         fitch_diffs = s.diffs;
         fitch_node_penalty = s.node_penalty;
@@ -1625,8 +1637,23 @@ public:
     inline int fitchPatternFreq(int ptn) const { return fitch_ptn_freq[ptn]; }
     inline int fitchPositionForPattern(int ptn) const { return fitch_ptn_position[ptn]; }
     inline int fitchNumPatterns() const { return fitch_nptn; }
+    /**
+     * Snapshots the per-pattern frequency vector.
+     * @param out Output vector (assigned).
+     */
     inline void fitchSnapshotPatternFreq(std::vector<int>& out) const { out = fitch_ptn_freq; }
+
+    /**
+     * Restores the per-pattern frequency vector.
+     * @param in Frequencies from a prior fitchSnapshotPatternFreq().
+     */
     inline void fitchRestorePatternFreq(const std::vector<int>& in) { fitch_ptn_freq = in; }
+
+    /**
+     * Multiplies one pattern's frequency by a scalar (used by ratchet).
+     * @param ptn        Pattern index.
+     * @param multiplier Scalar to apply.
+     */
     inline void fitchScalePatternFreq(int ptn, int multiplier) { fitch_ptn_freq[ptn] *= multiplier; }
 
     // === LCA query (Euler-tour + sparse-table for O(1) queries) ===
@@ -1634,10 +1661,18 @@ public:
     PhyloNode* findLCA(PhyloNode* a, PhyloNode* b) const;
     const LCATable& getLCATable() const { return lca_table; }
 
+    /**
+     * Computes a 64-bit hash per node identifying its clade (leaf set).
+     * Same clade gets same hash regardless of rooting or traversal order.
+     * @param out Output indexed by node id, sized max_node_id + 1.
+     */
     void computeCladeHashes(std::vector<uint64_t>& out) const;
 
-    // After orientTreeToRoot(), neighbors[0] points toward parent. Returns nullptr
-    // for the root or for a null/empty-neighbors node.
+    /**
+     * Returns parent assuming the tree is oriented (neighbors[0] = parent).
+     * @param node Node to query.
+     * @return Parent node, or nullptr for root/null/empty-neighbor input.
+     */
     inline PhyloNode* getParentOriented(PhyloNode* node) const {
         if (!node || node == (PhyloNode*)root || node->neighbors.empty()) return nullptr;
         return (PhyloNode*)node->neighbors[0]->node;

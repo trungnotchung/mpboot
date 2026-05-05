@@ -1,3 +1,9 @@
+/**
+ * Two delta paths: sparse Fitch (binary, hot path) and mutation-based fallback.
+ * Mutation path requires fresh PhyloNeighbor::mutations; only safe after
+ * tree->computeParsimony().
+ */
+
 #include "spr_delta_exact.h"
 #include "spr_mutation_ops.h"
 #include "spr_utils.h"
@@ -7,12 +13,6 @@
 #include <cassert>
 #include <map>
 #include <queue>
-
-// Two delta paths:
-//   sparseBinaryDelta (binary src_parent, ctx->fitch set): O(M) via Fitch arrays.
-//   mutation fallback: reads PhyloNeighbor::mutations, which are stale during
-//   SPROptimizer::optimizeAtRadius. Only safe to use after optimizeTree() returns
-//   and the caller has refreshed mutations via tree->computeParsimony().
 
 void SPRDeltaExact::precomputeDepths(PhyloTree* tree) {
     if (tree) tree->buildLCATable();

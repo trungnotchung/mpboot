@@ -8,15 +8,18 @@
 #include "phylonode.h"
 #include "mutation.h"
 
+/**
+ * One pending allele-count change at a single genomic position.
+ */
 class MutationCountChange {
 public:
-    int position;
-    nuc_one_hot removed_alleles;
-    nuc_one_hot added_alleles;
-    nuc_one_hot par_state;
-    nuc_one_hot major_allele_set;
-    nuc_one_hot boundary1_allele;
-    bool from_src;
+    int position;                    ///< Genomic position (or pattern index).
+    nuc_one_hot removed_alleles;     ///< Alleles whose count went down.
+    nuc_one_hot added_alleles;       ///< Alleles whose count went up.
+    nuc_one_hot par_state;           ///< Parent's allele state.
+    nuc_one_hot major_allele_set;    ///< Alleles tied for max count.
+    nuc_one_hot boundary1_allele;    ///< Alleles at count = max_count - 1.
+    bool from_src;                   ///< True if from src removal.
 
     MutationCountChange()
         : position(-1), removed_alleles(0), added_alleles(0),
@@ -31,26 +34,29 @@ public:
         : position(pos), removed_alleles(dec), added_alleles(inc),
           par_state(par), major_allele_set(major), boundary1_allele(boundary1), from_src(false) {}
 
-    // Score change for intermediate nodes (on src->LCA or LCA->dst path).
+    /** Score change for intermediate nodes (-1, 0, or +1). */
     int scoreDeltaInternal() const {
         if (added_alleles && (added_alleles & par_state)) return -1;
         if (removed_alleles && (removed_alleles & par_state)) return +1;
         return 0;
     }
 
-    // Score change for terminal nodes (src removal or dst insertion point).
+    /** Score change for terminal nodes (-1, 0, or +1). */
     int scoreDeltaTerminal() const {
         if (added_alleles && !(added_alleles & par_state)) return +1;
         if (removed_alleles && !(removed_alleles & par_state)) return -1;
         return 0;
     }
 
-    // Only recompute major allele set if the change affects boundary-1 alleles.
+    /** True if change may flip the major allele set. */
     bool isSensitive() const {
         return (removed_alleles & boundary1_allele) || (added_alleles & boundary1_allele);
     }
 
+    /** True if any allele was added or removed. */
     bool hasChange() const { return removed_alleles != 0 || added_alleles != 0; }
+
+    /** Union of removed and added alleles. */
     nuc_one_hot affectedAlleles() const { return removed_alleles | added_alleles; }
 
     bool operator<(const MutationCountChange& other) const { return position < other.position; }
@@ -62,17 +68,35 @@ public:
 using MutationCountChangeCollection = std::vector<MutationCountChange>;
 
 namespace MutationCountChangeUtils {
+    /**
+     * Merges two sorted-by-position collections.
+     * @param a First sorted collection.
+     * @param b Second sorted collection.
+     * @return Merged sorted collection.
+     */
     MutationCountChangeCollection merge_sorted(
         const MutationCountChangeCollection& a,
         const MutationCountChangeCollection& b);
 
+    /**
+     * Binary search for first entry with given position.
+     * @param collection Sorted collection.
+     * @param position   Position to find.
+     * @return Iterator to entry, or end() if not found.
+     */
     MutationCountChangeCollection::const_iterator find_position(
         const MutationCountChangeCollection& collection,
         int position);
 
+    /**
+     * @return true if collection is sorted by position.
+     */
     bool is_sorted(const MutationCountChangeCollection& collection);
 }
 
+/**
+ * Mutation-based SPR delta operations. Requires fresh PhyloNeighbor::mutations.
+ */
 class SPRMutationOps {
 public:
     /// Initialize src's mutations as count changes.
