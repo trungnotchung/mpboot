@@ -175,15 +175,9 @@ void placeNewSamplesOntoExistingTree(Params &params) {
 		SPROptimizeOptions opts;
 		opts.max_passes    = params.spr_max_passes;
 		opts.max_radius    = params.spr_max_radius;
-		opts.drift_iters   = params.spr_drift_iterations;
-		opts.drift_radius  = params.spr_drift_radius;
 		opts.ratchet_iters = params.spr_ratchet_iterations;
 		opts.ratchet_seed  = params.spr_ratchet_seed;
 		opts.ratchet_runs  = params.spr_ratchet_runs;
-		opts.cycles        = params.spr_cycles;
-		opts.sector_size   = params.spr_sector_size;
-		opts.sector_count  = params.spr_sector_count;
-		opts.sector_seed   = params.spr_sector_seed;
 		opts.wall_seconds  = params.spr_wall_seconds;
 		int best_score = optimizer.optimizeTree(opts);
 

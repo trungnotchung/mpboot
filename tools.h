@@ -1561,17 +1561,11 @@ struct Params {
     bool test_delta;                // Run SPRDeltaExact debug tests
     int spr_max_iterations;         // Maximum optimization iterations
     float spr_min_improvement;      // Convergence threshold (relative)
-    int spr_drift_iterations;       // Drift iterations for escaping local optima
-    int spr_drift_radius;           // Per-round drift radius (0 = use spr_max_radius)
     int spr_max_passes;             // Max full passes over all radii (default 1)
     int spr_max_radius;             // Max SPR search radius (default 32, 0=unbounded)
     int spr_ratchet_iterations;     // Parsimony ratchet iterations (0 = disabled)
     int spr_ratchet_seed;           // RNG seed for ratchet pattern reweighting
     int spr_ratchet_runs;           // Best-of-K independent ratchet runs (1 = single)
-    int spr_cycles;                 // TNT-style drift+ratchet cycles (1 = single pass)
-    int spr_sector_size;            // Sectorial search: K leaves per sector (0 = disabled)
-    int spr_sector_count;           // Sectors per cycle
-    int spr_sector_seed;            // RNG seed for sector center picker
     double spr_wall_seconds;        // Total optimizer wall-clock cap in seconds (<=0 = no cap)
 
     /*

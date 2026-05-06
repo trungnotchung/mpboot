@@ -798,17 +798,11 @@ void parseArg(int argc, char *argv[], Params &params) {
     params.test_delta = false;   // SPRDeltaExact debug tests (disabled by default)
     params.spr_max_iterations = 1000; // Maximum optimization iterations
     params.spr_min_improvement = 0.0005; // Convergence threshold: 0.05%
-    params.spr_drift_iterations = 0; // Drift iterations (0 = disabled)
-    params.spr_drift_radius = 0;     // 0 = inherit spr_max_radius
     params.spr_max_passes = 10;      // Default: up to 10 passes (stops early on convergence)
     params.spr_max_radius = 32;      // Default: max radius 32 (0=unbounded)
     params.spr_ratchet_iterations = 0;  // Parsimony ratchet iterations (0 = disabled)
     params.spr_ratchet_seed = 42;       // Default RNG seed
     params.spr_ratchet_runs = 1;        // Single ratchet run by default
-    params.spr_cycles = 1;              // No cycling by default
-    params.spr_sector_size = 0;         // Sectorial disabled by default
-    params.spr_sector_count = 8;
-    params.spr_sector_seed = 42;
     params.spr_wall_seconds = 0.0;      // Optimizer wall-clock cap (<=0 = no cap, default unbounded)
     params.test_site_pars = false;
     params.auto_vectorize = false;
@@ -2467,12 +2461,6 @@ void parseArg(int argc, char *argv[], Params &params) {
             	params.spr_optimize = true; // tests need placement to run first
             	continue;
             }
-		if(strcmp(argv[cnt], "-drift_iterations") == 0){
-            	cnt++;
-            	if (cnt >= argc) throw "Use -drift_iterations <number>";
-            	params.spr_drift_iterations = convert_int(argv[cnt]);
-            	continue;
-            }
 			if(strcmp(argv[cnt], "-spr_max_iter") == 0){
             	cnt++;
                 if (cnt >= argc)
@@ -2485,19 +2473,6 @@ void parseArg(int argc, char *argv[], Params &params) {
                 if (cnt >= argc)
                     throw "Use -spr_min_improve <min improvement threshold>";
             	params.spr_min_improvement = convert_double(argv[cnt]);
-            	continue;
-            }
-			if(strcmp(argv[cnt], "-spr_drift_iter") == 0){
-            	cnt++;
-                if (cnt >= argc)
-                    throw "Use -spr_drift_iter <drift iterations>";
-            	params.spr_drift_iterations = convert_int(argv[cnt]);
-            	continue;
-            }
-			if(strcmp(argv[cnt], "-spr_drift_radius") == 0){
-            	cnt++;
-                if (cnt >= argc) throw "Use -spr_drift_radius <r>";
-            	params.spr_drift_radius = convert_int(argv[cnt]);
             	continue;
             }
 			if(strcmp(argv[cnt], "-spr_max_passes") == 0){
@@ -2533,34 +2508,6 @@ void parseArg(int argc, char *argv[], Params &params) {
                 if (cnt >= argc)
                     throw "Use -spr_ratchet_runs <K>";
             	params.spr_ratchet_runs = convert_int(argv[cnt]);
-            	continue;
-            }
-			if(strcmp(argv[cnt], "-spr_cycles") == 0){
-            	cnt++;
-                if (cnt >= argc)
-                    throw "Use -spr_cycles <K>";
-            	params.spr_cycles = convert_int(argv[cnt]);
-            	continue;
-            }
-			if(strcmp(argv[cnt], "-spr_sector_size") == 0){
-            	cnt++;
-                if (cnt >= argc)
-                    throw "Use -spr_sector_size <K leaves>";
-            	params.spr_sector_size = convert_int(argv[cnt]);
-            	continue;
-            }
-			if(strcmp(argv[cnt], "-spr_sector_count") == 0){
-            	cnt++;
-                if (cnt >= argc)
-                    throw "Use -spr_sector_count <N sectors>";
-            	params.spr_sector_count = convert_int(argv[cnt]);
-            	continue;
-            }
-			if(strcmp(argv[cnt], "-spr_sector_seed") == 0){
-            	cnt++;
-                if (cnt >= argc)
-                    throw "Use -spr_sector_seed <seed>";
-            	params.spr_sector_seed = convert_int(argv[cnt]);
             	continue;
             }
 			if(strcmp(argv[cnt], "-spr_wall_seconds") == 0){

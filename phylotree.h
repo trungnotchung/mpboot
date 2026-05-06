@@ -1662,13 +1662,6 @@ public:
     const LCATable& getLCATable() const { return lca_table; }
 
     /**
-     * Computes a 64-bit hash per node identifying its clade (leaf set).
-     * Same clade gets same hash regardless of rooting or traversal order.
-     * @param out Output indexed by node id, sized max_node_id + 1.
-     */
-    void computeCladeHashes(std::vector<uint64_t>& out) const;
-
-    /**
      * Returns parent assuming the tree is oriented (neighbors[0] = parent).
      * @param node Node to query.
      * @return Parent node, or nullptr for root/null/empty-neighbor input.
