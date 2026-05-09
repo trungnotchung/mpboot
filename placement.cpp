@@ -10,6 +10,7 @@
 #include "sproptimize.h"
 extern int runSPRUnitTests(PhyloTree* tree);
 extern int runSPRDeltaTests(PhyloTree* tree);
+extern int runTBRUnitTests(PhyloTree* tree);
 #include <queue>
 #include <set>
 
@@ -158,6 +159,13 @@ void placeNewSamplesOntoExistingTree(Params &params) {
 			cerr << "\n[ERROR] " << failures << " delta test(s) FAILED" << endl;
 		}
 		cout << "========== SPRDeltaExact Debug Tests Complete ==========\n\n";
+
+		cout << "\n========== Running TBR Unit Tests ==========\n";
+		int tbr_failures = runTBRUnitTests(tree);
+		if (tbr_failures > 0) {
+			cerr << "\n[ERROR] " << tbr_failures << " TBR test(s) FAILED" << endl;
+		}
+		cout << "========== TBR Unit Tests Complete ==========\n\n";
 	} else if (params.spr_test) {
 		cout << "\n========== Running SPR Unit Tests ==========\n";
 		tree->initializeAllPartialPars();
@@ -166,6 +174,13 @@ void placeNewSamplesOntoExistingTree(Params &params) {
 			cerr << "\n[ERROR] " << failures << " test(s) FAILED" << endl;
 		}
 		cout << "========== SPR Unit Tests Complete ==========\n\n";
+
+		cout << "\n========== Running TBR Unit Tests ==========\n";
+		int tbr_failures = runTBRUnitTests(tree);
+		if (tbr_failures > 0) {
+			cerr << "\n[ERROR] " << tbr_failures << " TBR test(s) FAILED" << endl;
+		}
+		cout << "========== TBR Unit Tests Complete ==========\n\n";
 	} else if (params.spr_optimize) {
 		cout << "\n========== Starting post-placement SPR optimization ==========\n";
 		auto spr_start_time = getCPUTime();
@@ -179,6 +194,9 @@ void placeNewSamplesOntoExistingTree(Params &params) {
 		opts.ratchet_seed  = params.spr_ratchet_seed;
 		opts.ratchet_runs  = params.spr_ratchet_runs;
 		opts.wall_seconds  = params.spr_wall_seconds;
+		opts.tbr_iters     = params.spr_tbr_iters;
+		opts.tbr_radius_a  = params.spr_tbr_radius_a;
+		opts.tbr_radius_b  = params.spr_tbr_radius_b;
 		int best_score = optimizer.optimizeTree(opts);
 
 		double wall_secs = std::chrono::duration<double>(

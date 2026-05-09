@@ -804,6 +804,9 @@ void parseArg(int argc, char *argv[], Params &params) {
     params.spr_ratchet_seed = 42;       // Default RNG seed
     params.spr_ratchet_runs = 1;        // Single ratchet run by default
     params.spr_wall_seconds = 0.0;      // Optimizer wall-clock cap (<=0 = no cap, default unbounded)
+    params.spr_tbr_iters = 0;           // TBR disabled by default
+    params.spr_tbr_radius_a = 2;
+    params.spr_tbr_radius_b = 2;
     params.test_site_pars = false;
     params.auto_vectorize = false;
     params.sort_alignment = true;
@@ -2515,6 +2518,27 @@ void parseArg(int argc, char *argv[], Params &params) {
                 if (cnt >= argc)
                     throw "Use -spr_wall_seconds <seconds, <=0 disables>";
             	params.spr_wall_seconds = convert_double(argv[cnt]);
+            	continue;
+            }
+			if(strcmp(argv[cnt], "-spr_tbr_iter") == 0){
+            	cnt++;
+                if (cnt >= argc)
+                    throw "Use -spr_tbr_iter <rounds, 0 disables>";
+            	params.spr_tbr_iters = convert_int(argv[cnt]);
+            	continue;
+            }
+			if(strcmp(argv[cnt], "-spr_tbr_radius_a") == 0){
+            	cnt++;
+                if (cnt >= argc)
+                    throw "Use -spr_tbr_radius_a <BFS depth in subtree A>";
+            	params.spr_tbr_radius_a = convert_int(argv[cnt]);
+            	continue;
+            }
+			if(strcmp(argv[cnt], "-spr_tbr_radius_b") == 0){
+            	cnt++;
+                if (cnt >= argc)
+                    throw "Use -spr_tbr_radius_b <BFS depth in subtree B>";
+            	params.spr_tbr_radius_b = convert_int(argv[cnt]);
             	continue;
             }
 			if(strcmp(argv[cnt], "-sitepars") == 0){

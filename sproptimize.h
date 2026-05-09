@@ -2,12 +2,8 @@
 #define SPROPTIMIZE_H
 
 #include <vector>
-#include <map>
 
-class Node;
 class PhyloTree;
-class PhyloNode;
-class PhyloNeighbor;
 
 struct SPROptimizeOptions {
     int max_passes    = 10;
@@ -16,20 +12,23 @@ struct SPROptimizeOptions {
     int ratchet_seed  = 42;
     int ratchet_runs  = 1;
     double wall_seconds = 0.0;  // <=0 = no cap (default unbounded)
+    // TBR (Tree Bisection and Reconnection) post-SPR pass.
+    // Disabled when tbr_iters == 0. tbr_radius_a / tbr_radius_b are BFS depths
+    // from the bisection scar in each subtree; >=2 enables actual TBR moves.
+    int tbr_iters     = 0;
+    int tbr_radius_a  = 2;
+    int tbr_radius_b  = 2;
 };
 
 class SPROptimizer {
 public:
-    /**
-     * @param tree Initialized tree
-     */
+    /** @param tree Initialized tree (must have root and aln set). */
     SPROptimizer(PhyloTree* tree);
-
     ~SPROptimizer();
 
     /**
-     * Runs the main radius-escalating SPR pass loop, then an optional
-     * parsimony ratchet (Nixon 1999) phase.
+     * Runs the main radius-escalating SPR pass loop, then optional parsimony
+     * ratchet (Nixon 1999) and TBR phases.
      * @param opts Configuration (see SPROptimizeOptions).
      * @return Final parsimony score.
      */
@@ -37,6 +36,8 @@ public:
 
     /**
      * Runs one radius pass (rounds of find-select-apply, strict improvement).
+     * Public for test_spr_unit.cpp; callers must keep the tree oriented-to-root
+     * and depths precomputed between calls.
      * @param radius        Max SPR radius (0 = unbounded).
      * @param known_score   Current score (skip recompute if >0).
      * @param wall_seconds  Soft wall-clock cap (0 = no cap).
@@ -46,8 +47,6 @@ public:
 
 private:
     PhyloTree* tree;
-    int current_parsimony_score;
-    int best_score_seen;
 };
 
 #endif

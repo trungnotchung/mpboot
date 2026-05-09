@@ -3,6 +3,7 @@
 #include "spr_delta_exact.h"
 #include "spr_mutation_ops.h"
 #include "spr_utils.h"
+#include "tbr_primitives.h"
 #include "phylotree.h"
 #include "phylonode.h"
 #include <iostream>
@@ -20,10 +21,11 @@ using namespace std::chrono;
 
 static const int MAX_ROUNDS_PER_RADIUS = 100;
 static const int RADIUS_STALL_LIMIT = 2;
-static const int BINARY_NODE_DEGREE = 3;
-static const double CONVERGENCE_THRESHOLD = 0.001;
 static const double RATCHET_INV_TEMPERATURE = 2.0;
 static const int    RATCHET_ZERO_ACCEPT_PCT = 50;
+// Ratchet pattern reweight: each pattern has a 1-in-(REWEIGHT_DENOM) chance of being scaled by REWEIGHT_FACTOR.
+static const unsigned RATCHET_REWEIGHT_DENOM_MASK = 3u;  // (rng() & MASK) == 0 → ~25% reweight
+static const int      RATCHET_REWEIGHT_FACTOR     = 2;
 
 namespace {
 struct OptimizerScratch {
@@ -41,7 +43,7 @@ struct OptimizerScratch {
 };
 } // namespace
 
-static OptimizerScratch g_scratch;
+static OptimizerScratch s_scratch;
 
 /**
  * O(1) parent lookup. Requires orientTreeToRoot() since last topology change.
@@ -49,44 +51,45 @@ static OptimizerScratch g_scratch;
  * @return Parent node, or nullptr for the root or a null input.
  */
 static inline PhyloNode* getParent(PhyloNode* node) {
-    if (!node || node == g_scratch.root) return nullptr;
+    if (!node || node == s_scratch.root) return nullptr;
     return (PhyloNode*)node->neighbors[0]->node;
 }
 
 /**
- * Resizes affected bitset if pattern count changed.
+ * Resizes the affected-pattern bitset if pattern count changed.
  * @param nptn Required pattern count.
  */
 static inline void bitsetInit(int nptn) {
-    if (g_scratch.bitset_nptn != nptn) {
-        g_scratch.affected_bitset.assign(nptn, false);
-        g_scratch.affected_list.reserve(nptn);
-        g_scratch.bitset_nptn = nptn;
+    if (s_scratch.bitset_nptn != nptn) {
+        s_scratch.affected_bitset.assign(nptn, false);
+        s_scratch.affected_list.reserve(nptn);
+        s_scratch.bitset_nptn = nptn;
     }
 }
 
-/** Clears the affected bitset in O(|set|). */
+/** Clears the affected-pattern bitset in O(|set|). */
 static inline void bitsetClear() {
-    for (int p : g_scratch.affected_list) g_scratch.affected_bitset[p] = false;
-    g_scratch.affected_list.clear();
+    for (int ptn : s_scratch.affected_list) s_scratch.affected_bitset[ptn] = false;
+    s_scratch.affected_list.clear();
 }
 
 /**
- * Adds a node's diff list to the affected bitset.
+ * Adds a node's diff-pattern list to the affected bitset.
  * @param diffs Sorted-unique diff list, or nullptr.
  */
 static inline void bitsetAddDiffs(const vector<int>* diffs) {
     if (!diffs) return;
-    for (int p : *diffs) {
-        if (!g_scratch.affected_bitset[p]) {
-            g_scratch.affected_bitset[p] = true;
-            g_scratch.affected_list.push_back(p);
+    for (int ptn : *diffs) {
+        if (!s_scratch.affected_bitset[ptn]) {
+            s_scratch.affected_bitset[ptn] = true;
+            s_scratch.affected_list.push_back(ptn);
         }
     }
 }
 
 /**
- * Per-source precomputed state for O(M) delta evaluation.
+ * Per-source precomputed state for O(M) delta evaluation. Cached once per
+ * candidate `src` and reused across many `evaluate(dst, dst_parent)` calls.
  */
 class SPRSourceState {
 public:
@@ -114,11 +117,11 @@ private:
     const nuc_one_hot* src_parent_states;
     const nuc_one_hot* grandparent_states;
 
-    PhyloNode* gp_sibling;
-    const nuc_one_hot* gp_sibling_states;
+    PhyloNode* grandparent_sibling;
+    const nuc_one_hot* grandparent_sibling_states;
     vector<PathStep> src_to_root;
 
-    mutable int base_bitset_size;  // number of base_diffs entries in g_scratch.affected_list
+    mutable int base_bitset_size;  // entries in s_scratch.affected_list at end of setupBaseBitset
 
     int evalCaseA(PhyloNode* dst, PhyloNode* dst_parent) const;
     int evalCaseB1(PhyloNode* dst) const;
@@ -138,8 +141,8 @@ SPRSourceState::SPRSourceState(PhyloTree* tree, PhyloNode* src, PhyloNode* src_p
     src_parent_states = tree->fitchMajorArrayFor(src_parent);
     grandparent_states = tree->fitchMajorArrayFor(grandparent);
 
-    gp_sibling = findOtherChild(grandparent, getParent(grandparent), src_parent);
-    gp_sibling_states = gp_sibling ? tree->fitchMajorArrayFor(gp_sibling) : nullptr;
+    grandparent_sibling = findOtherChild(grandparent, getParent(grandparent), src_parent);
+    grandparent_sibling_states = grandparent_sibling ? tree->fitchMajorArrayFor(grandparent_sibling) : nullptr;
 
     {
         PhyloNode* prev = src_parent;
@@ -157,10 +160,10 @@ SPRSourceState::SPRSourceState(PhyloTree* tree, PhyloNode* src, PhyloNode* src_p
     }
 
     {
-        const vector<int>* d;
-        d = tree->fitchDiffsFor(src);       if (d && !d->empty()) has_nonzero_diffs = true;
-        d = tree->fitchDiffsFor(sibling);   if (d && !d->empty()) has_nonzero_diffs = true;
-        d = tree->fitchDiffsFor(src_parent); if (d && !d->empty()) has_nonzero_diffs = true;
+        const vector<int>* diffs;
+        diffs = tree->fitchDiffsFor(src);        if (diffs && !diffs->empty()) has_nonzero_diffs = true;
+        diffs = tree->fitchDiffsFor(sibling);    if (diffs && !diffs->empty()) has_nonzero_diffs = true;
+        diffs = tree->fitchDiffsFor(src_parent); if (diffs && !diffs->empty()) has_nonzero_diffs = true;
     }
     base_bitset_size = 0;
 }
@@ -170,15 +173,16 @@ void SPRSourceState::setupBaseBitset() const {
     bitsetAddDiffs(tree->fitchDiffsFor(src));
     bitsetAddDiffs(tree->fitchDiffsFor(sibling));
     bitsetAddDiffs(tree->fitchDiffsFor(src_parent));
-    base_bitset_size = (int)g_scratch.affected_list.size();
+    base_bitset_size = (int)s_scratch.affected_list.size();
 }
 
 void SPRSourceState::restoreBaseBitset() const {
-    // Remove dst-specific entries (those added after base setup)
-    for (int i = base_bitset_size; i < (int)g_scratch.affected_list.size(); i++) {
-        g_scratch.affected_bitset[g_scratch.affected_list[i]] = false;
+    // Drop dst-specific entries appended after the base setup, leaving the
+    // src/sibling/src_parent entries in place for the next dst evaluation.
+    for (int i = base_bitset_size; i < (int)s_scratch.affected_list.size(); i++) {
+        s_scratch.affected_bitset[s_scratch.affected_list[i]] = false;
     }
-    g_scratch.affected_list.resize(base_bitset_size);
+    s_scratch.affected_list.resize(base_bitset_size);
 }
 
 int SPRSourceState::evaluate(PhyloNode* dst, PhyloNode* dst_parent) const {
@@ -198,8 +202,8 @@ int SPRSourceState::evaluate(PhyloNode* dst, PhyloNode* dst_parent) const {
 
 // ========== CASE A: dst in sibling's subtree ==========
 int SPRSourceState::evalCaseA(PhyloNode* dst, PhyloNode* dst_parent) const {
-    g_scratch.scratch_path.clear();
-    auto& scratch_path = g_scratch.scratch_path;
+    s_scratch.scratch_path.clear();
+    auto& scratch_path = s_scratch.scratch_path;
     {
         PhyloNode* prev = dst;
         PhyloNode* cur = dst_parent;
@@ -215,17 +219,17 @@ int SPRSourceState::evalCaseA(PhyloNode* dst, PhyloNode* dst_parent) const {
         }
     }
 
-    // Add dst-specific diffs on top of persistent base bitset
+    // Layer dst-specific diffs on top of the persistent base bitset.
     bitsetAddDiffs(tree->fitchDiffsFor(dst));
     for (const auto& step : scratch_path) bitsetAddDiffs(tree->fitchDiffsFor(step.node));
 
     const nuc_one_hot* dst_states = tree->fitchMajorArrayFor(dst);
     int score = 0;
 
-    for (int ptn : g_scratch.affected_list) {
+    for (int ptn : s_scratch.affected_list) {
         int freq = tree->fitchPatternFreq(ptn);
         nuc_one_hot src_fitch = src_states[ptn], sibling_fitch = sibling_states[ptn];
-        nuc_one_hot dst_fitch = dst_states[ptn], sp_fitch = src_parent_states[ptn];
+        nuc_one_hot dst_fitch = dst_states[ptn], src_parent_fitch = src_parent_states[ptn];
 
         score += (((src_fitch & dst_fitch) ? 0 : 1) - ((src_fitch & sibling_fitch) ? 0 : 1)) * freq;
 
@@ -237,14 +241,14 @@ int SPRSourceState::evalCaseA(PhyloNode* dst, PhyloNode* dst_parent) const {
             ? new_fitch : sibling_fitch;
 
         if (grandparent->isLeaf()) {
-            score += rootEdgeDelta(grandparent_states[ptn], sp_fitch, new_sibling_fitch) * freq;
+            score += rootEdgeDelta(grandparent_states[ptn], src_parent_fitch, new_sibling_fitch) * freq;
         } else {
-            nuc_one_hot gp_sibling_fitch = gp_sibling_states ? gp_sibling_states[ptn] : 0xF;
-            nuc_one_hot new_gp_fitch;
-            score += penaltyDelta(sp_fitch, new_sibling_fitch, gp_sibling_fitch, new_gp_fitch) * freq;
+            nuc_one_hot grandparent_sibling_fitch = grandparent_sibling_states ? grandparent_sibling_states[ptn] : NUC_N;
+            nuc_one_hot new_grandparent_fitch;
+            score += penaltyDelta(src_parent_fitch, new_sibling_fitch, grandparent_sibling_fitch, new_grandparent_fitch) * freq;
 
-            if (new_gp_fitch != grandparent_states[ptn]) {
-                nuc_one_hot old_prop = grandparent_states[ptn], new_prop = new_gp_fitch;
+            if (new_grandparent_fitch != grandparent_states[ptn]) {
+                nuc_one_hot old_prop = grandparent_states[ptn], new_prop = new_grandparent_fitch;
                 propagatePath(src_to_root, 1, src_to_root.size(), ptn, freq, old_prop, new_prop, score);
             }
         }
@@ -279,13 +283,13 @@ int SPRSourceState::evalCaseB1(PhyloNode* dst) const {
 
     int score = 0;
 
-    for (int ptn : g_scratch.affected_list) {
+    for (int ptn : s_scratch.affected_list) {
         int freq = tree->fitchPatternFreq(ptn);
         nuc_one_hot src_fitch = src_states[ptn], sibling_fitch = sibling_states[ptn];
-        nuc_one_hot sp_fitch = src_parent_states[ptn];
+        nuc_one_hot src_parent_fitch = src_parent_states[ptn];
         int old_sp_penalty = (src_fitch & sibling_fitch) ? 0 : 1;
 
-        nuc_one_hot src_old = sp_fitch, src_new = sibling_fitch;
+        nuc_one_hot src_old = src_parent_fitch, src_new = sibling_fitch;
         propagatePath(src_to_root, 0, src_path_len, ptn, freq, src_old, src_new, score);
 
         nuc_one_hot src_child_old = src_branch_states[ptn];
@@ -293,15 +297,15 @@ int SPRSourceState::evalCaseB1(PhyloNode* dst) const {
 
         score += (((src_fitch & src_child_new) ? 0 : 1) - old_sp_penalty) * freq;
 
-        nuc_one_hot new_sp_fitch = fitchMerge(src_fitch, src_child_new);
+        nuc_one_hot new_src_parent_fitch = fitchMerge(src_fitch, src_child_new);
 
-        nuc_one_hot lca_sibling_fitch = lca_sibling_states ? lca_sibling_states[ptn] : 0xF;
+        nuc_one_hot lca_sibling_fitch = lca_sibling_states ? lca_sibling_states[ptn] : NUC_N;
         nuc_one_hot old_lca_fitch = lca_states[ptn];
         nuc_one_hot new_lca_fitch;
-        score += penaltyDelta(src_child_old, new_sp_fitch, lca_sibling_fitch, new_lca_fitch) * freq;
+        score += penaltyDelta(src_child_old, new_src_parent_fitch, lca_sibling_fitch, new_lca_fitch) * freq;
 
         if (!lca_parent && lca->isLeaf()) {
-            score += rootEdgeDelta(lca_states[ptn], src_child_old, new_sp_fitch) * freq;
+            score += rootEdgeDelta(lca_states[ptn], src_child_old, new_src_parent_fitch) * freq;
         } else if (new_lca_fitch != old_lca_fitch && lca_parent) {
             nuc_one_hot old_prop = old_lca_fitch, new_prop = new_lca_fitch;
             if (lca_parent->isLeaf()) {
@@ -329,8 +333,8 @@ int SPRSourceState::evalCaseB2(PhyloNode* dst, PhyloNode* dst_parent, PhyloNode*
         ? src_parent : src_to_root[src_path_len - 1].node;
     const nuc_one_hot* src_branch_states = tree->fitchMajorArrayFor(src_branch);
 
-    g_scratch.scratch_path.clear();
-    auto& scratch_path = g_scratch.scratch_path;
+    s_scratch.scratch_path.clear();
+    auto& scratch_path = s_scratch.scratch_path;
     {
         PhyloNode* prev = dst;
         PhyloNode* cur = dst_parent;
@@ -351,25 +355,25 @@ int SPRSourceState::evalCaseB2(PhyloNode* dst, PhyloNode* dst_parent, PhyloNode*
     const nuc_one_hot* lca_states = tree->fitchMajorArrayFor(lca);
     const nuc_one_hot* dst_states = tree->fitchMajorArrayFor(dst);
 
-    // Add dst-specific diffs on top of persistent base bitset
+    // Layer dst-specific diffs (dst, src→lca path, dst→lca path) on top of base bitset.
     bitsetAddDiffs(tree->fitchDiffsFor(dst));
     for (size_t i = 0; i < src_path_len; i++) bitsetAddDiffs(tree->fitchDiffsFor(src_to_root[i].node));
     for (const auto& step : scratch_path) bitsetAddDiffs(tree->fitchDiffsFor(step.node));
 
     int score = 0;
 
-    for (int ptn : g_scratch.affected_list) {
+    for (int ptn : s_scratch.affected_list) {
         int freq = tree->fitchPatternFreq(ptn);
         nuc_one_hot src_fitch = src_states[ptn], sibling_fitch = sibling_states[ptn];
-        nuc_one_hot dst_fitch = dst_states[ptn], sp_fitch = src_parent_states[ptn];
+        nuc_one_hot dst_fitch = dst_states[ptn], src_parent_fitch = src_parent_states[ptn];
 
         score += (((src_fitch & dst_fitch) ? 0 : 1) - ((src_fitch & sibling_fitch) ? 0 : 1)) * freq;
 
-        nuc_one_hot src_old = sp_fitch, src_new = sibling_fitch;
+        nuc_one_hot src_old = src_parent_fitch, src_new = sibling_fitch;
         propagatePath(src_to_root, 0, src_path_len, ptn, freq, src_old, src_new, score);
 
-        nuc_one_hot new_sp_fitch = fitchMerge(src_fitch, dst_fitch);
-        nuc_one_hot dst_old = dst_fitch, dst_new = new_sp_fitch;
+        nuc_one_hot new_src_parent_fitch = fitchMerge(src_fitch, dst_fitch);
+        nuc_one_hot dst_old = dst_fitch, dst_new = new_src_parent_fitch;
         propagatePath(scratch_path, ptn, freq, dst_old, dst_new, score);
 
         bool src_changed = (src_old != src_new), dst_changed = (dst_old != dst_new);
@@ -406,7 +410,7 @@ struct SPRCandidate {
     PhyloNode* sibling2;
     PhyloNode* dst;
     PhyloNode* dst_parent;
-    int delta;          ///< <0 = improvement, ==0 = plateau move (drift).
+    int delta;          ///< <0 = improvement, ==0 = plateau (drift).
 };
 
 using NeighborSave = SPRNeighborSave;
@@ -443,21 +447,21 @@ static vector<PhyloNode*> collectAllNodes(PhyloTree* tree, int max_id) {
 static void orientTreeToRoot(PhyloTree* tree, int max_id) {
     PhyloNode* root = (PhyloNode*)tree->root;
 
-    if ((int)g_scratch.orient_visited.size() < max_id + 1) {
-        g_scratch.orient_visited.assign(max_id + 1, false);
-        g_scratch.orient_visited_ids.reserve(max_id + 1);
+    if ((int)s_scratch.orient_visited.size() < max_id + 1) {
+        s_scratch.orient_visited.assign(max_id + 1, false);
+        s_scratch.orient_visited_ids.reserve(max_id + 1);
     }
-    for (int id : g_scratch.orient_visited_ids) g_scratch.orient_visited[id] = false;
-    g_scratch.orient_visited_ids.clear();
+    for (int id : s_scratch.orient_visited_ids) s_scratch.orient_visited[id] = false;
+    s_scratch.orient_visited_ids.clear();
 
     queue<pair<PhyloNode*, PhyloNode*>> q;
     q.push({root, nullptr});
 
     while (!q.empty()) {
         PhyloNode* node = (PhyloNode*)q.front().first; PhyloNode* parent = (PhyloNode*)q.front().second; q.pop();
-        if (g_scratch.orient_visited[node->id]) continue;
-        g_scratch.orient_visited[node->id] = true;
-        g_scratch.orient_visited_ids.push_back(node->id);
+        if (s_scratch.orient_visited[node->id]) continue;
+        s_scratch.orient_visited[node->id] = true;
+        s_scratch.orient_visited_ids.push_back(node->id);
 
         if (parent) {
             for (size_t i = 0; i < node->neighbors.size(); i++) {
@@ -470,11 +474,11 @@ static void orientTreeToRoot(PhyloTree* tree, int max_id) {
 
         FOR_NEIGHBOR_IT(node, nullptr, it) {
             PhyloNode* child = (PhyloNode*)(*it)->node;
-            if (!g_scratch.orient_visited[child->id]) q.push({child, node});
+            if (!s_scratch.orient_visited[child->id]) q.push({child, node});
         }
     }
 
-    g_scratch.root = root;
+    s_scratch.root = root;
 }
 
 /**
@@ -487,6 +491,10 @@ static void orientTreeToRoot(PhyloTree* tree, int max_id) {
  */
 static void applySPRMove(PhyloNode* src_parent, PhyloNode* sibling1, PhyloNode* sibling2,
                          PhyloNode* dst, PhyloNode* dst_parent) {
+    assert(src_parent && sibling1 && sibling2 && dst && dst_parent);
+    assert(sibling1 != sibling2);
+    assert(dst != dst_parent);
+    assert(dst->findNeighbor(dst_parent) && dst_parent->findNeighbor(dst));
     if (dst_parent == sibling1) {
         sibling1->updateNeighbor(src_parent, sibling2);  sibling2->updateNeighbor(src_parent, sibling1);
         src_parent->updateNeighbor(sibling1, dst);        src_parent->updateNeighbor(sibling2, dst_parent);
@@ -511,19 +519,13 @@ static inline void saveTopology(PhyloNode* node, vector<NeighborSave>& saves) {
     sprSaveNodeTopology(node, saves);
 }
 
-/**
- * Restores neighbor pointers from a save list.
- * @param saves Saves recorded by saveTopology.
- */
+/** Restores neighbor pointers from a save list. */
 static inline void undoTopology(vector<NeighborSave>& saves) {
     sprUndoTopology(saves);
 }
 
 /**
- * Marks the 6 nodes touched by each move as dirty.
- * @param moves  Selected SPR moves.
- * @param dirty  In/out: dirty flag bitset.
- * @param max_id Upper bound on dirty index.
+ * Marks the 6 nodes touched by each move as dirty (for next-round skip).
  */
 static void markDirty(const vector<SPRCandidate>& moves, vector<bool>& dirty, int max_id) {
     for (const auto& m : moves) {
@@ -537,20 +539,17 @@ static void markDirty(const vector<SPRCandidate>& moves, vector<bool>& dirty, in
 }
 
 /**
- * Tests whether any node within radius edges of `node` is dirty.
- * @param node    Source node to check around.
- * @param radius  Max BFS depth.
- * @param dirty   Dirty bitset (indexed by node id).
- * @param max_id  Upper bound for visited bitset size.
- * @return true if some node within radius is dirty.
+ * True if any node within `radius` BFS-edges of `node` is dirty.
+ * Used to skip re-evaluating sources whose neighborhood was untouched
+ * by the previous round's accepted moves.
  */
 static bool isNeighborhoodDirty(PhyloNode* node, int radius, const vector<bool>& dirty, int max_id) {
-    if ((int)g_scratch.bfs_visited.size() < max_id + 1) {
-        g_scratch.bfs_visited.assign(max_id + 1, false);
-        g_scratch.bfs_visited_ids.reserve(max_id + 1);
+    if ((int)s_scratch.bfs_visited.size() < max_id + 1) {
+        s_scratch.bfs_visited.assign(max_id + 1, false);
+        s_scratch.bfs_visited_ids.reserve(max_id + 1);
     }
-    for (int id : g_scratch.bfs_visited_ids) g_scratch.bfs_visited[id] = false;
-    g_scratch.bfs_visited_ids.clear();
+    for (int id : s_scratch.bfs_visited_ids) s_scratch.bfs_visited[id] = false;
+    s_scratch.bfs_visited_ids.clear();
 
     queue<pair<PhyloNode*, int>> q;
     q.push({node, 0});
@@ -561,29 +560,27 @@ static bool isNeighborhoodDirty(PhyloNode* node, int radius, const vector<bool>&
         int depth = q.front().second;
         q.pop();
 
-        if (g_scratch.bfs_visited[cur->id]) continue;
-        g_scratch.bfs_visited[cur->id] = true;
-        g_scratch.bfs_visited_ids.push_back(cur->id);
+        if (s_scratch.bfs_visited[cur->id]) continue;
+        s_scratch.bfs_visited[cur->id] = true;
+        s_scratch.bfs_visited_ids.push_back(cur->id);
 
         if (dirty[cur->id]) { found = true; break; }
 
         if (depth < radius) {
             FOR_NEIGHBOR_IT(cur, nullptr, nit) {
                 PhyloNode* neighbor = (PhyloNode*)(*nit)->node;
-                if (!g_scratch.bfs_visited[neighbor->id]) {
+                if (!s_scratch.bfs_visited[neighbor->id]) {
                     q.push({neighbor, depth + 1});
                 }
             }
         }
     }
 
-    for (int id : g_scratch.bfs_visited_ids) g_scratch.bfs_visited[id] = false;
+    for (int id : s_scratch.bfs_visited_ids) s_scratch.bfs_visited[id] = false;
     return found;
 }
 
-/**
- * Context passed to searchDestinations.
- */
+/** Context passed through searchDestinations recursion. */
 struct DFSContext {
     const SPRSourceState* state;
     PhyloTree* tree;
@@ -597,7 +594,6 @@ struct DFSContext {
     int radius;
     int* moves_evaluated;
     int* moves_pruned;
-    int best_delta;
     const nuc_one_hot* src_states;
     bool wall_active;
     std::chrono::high_resolution_clock::time_point wall_deadline;
@@ -605,7 +601,7 @@ struct DFSContext {
 };
 
 /**
- * Branch-and-bound estimate of the best delta achievable in a subtree.
+ * Branch-and-bound: upper bound on best delta achievable inside this subtree.
  * @param ctx          DFS context.
  * @param node         Subtree root being bounded.
  * @param parent_delta Best delta above this subtree.
@@ -673,9 +669,10 @@ static void searchDestinations(const DFSContext& ctx, PhyloNode* node, PhyloNode
     }
 }
 
-SPROptimizer::SPROptimizer(PhyloTree* tree) : tree(tree), current_parsimony_score(0),
-    best_score_seen(0) {
+SPROptimizer::SPROptimizer(PhyloTree* tree) : tree(tree) {
     if (!tree) throw std::invalid_argument("SPROptimizer: tree cannot be NULL");
+    if (!tree->root) throw std::invalid_argument("SPROptimizer: tree->root must be set");
+    if (!tree->aln) throw std::invalid_argument("SPROptimizer: tree->aln must be set");
 }
 
 SPROptimizer::~SPROptimizer() {}
@@ -683,47 +680,44 @@ SPROptimizer::~SPROptimizer() {}
 
 /**
  * Greedily picks a non-conflicting batch of moves (sorted by delta).
- * @param candidates In/out: candidates list (sorted by delta in place).
+ * Uses stable_sort so tied deltas preserve DFS-discovery order across runs.
+ * @param candidates In/out: sorted by delta in place.
  * @param max_id     Upper bound for the used-node bitset.
  * @param deferred   Optional output: conflicting candidates skipped.
  * @return Selected non-conflicting moves.
  */
 static vector<SPRCandidate> selectMoves(vector<SPRCandidate>& candidates, int max_id,
                                          vector<SPRCandidate>* deferred = nullptr) {
-    sort(candidates.begin(), candidates.end(),
-         [](const SPRCandidate& a, const SPRCandidate& b) { return a.delta < b.delta; });
+    stable_sort(candidates.begin(), candidates.end(),
+                [](const SPRCandidate& a, const SPRCandidate& b) { return a.delta < b.delta; });
 
-    if ((int)g_scratch.select_used.size() < max_id + 1) {
-        g_scratch.select_used.assign(max_id + 1, false);
-        g_scratch.select_used_ids.reserve(max_id + 1);
+    if ((int)s_scratch.select_used.size() < max_id + 1) {
+        s_scratch.select_used.assign(max_id + 1, false);
+        s_scratch.select_used_ids.reserve(max_id + 1);
     }
-    for (int id : g_scratch.select_used_ids) g_scratch.select_used[id] = false;
-    g_scratch.select_used_ids.clear();
+    for (int id : s_scratch.select_used_ids) s_scratch.select_used[id] = false;
+    s_scratch.select_used_ids.clear();
 
     vector<SPRCandidate> selected;
     for (const auto& move : candidates) {
-        if (g_scratch.select_used[move.src->id] || g_scratch.select_used[move.src_parent->id] ||
-            g_scratch.select_used[move.sibling1->id] || g_scratch.select_used[move.sibling2->id] ||
-            g_scratch.select_used[move.dst->id] || g_scratch.select_used[move.dst_parent->id]) {
+        if (s_scratch.select_used[move.src->id] || s_scratch.select_used[move.src_parent->id] ||
+            s_scratch.select_used[move.sibling1->id] || s_scratch.select_used[move.sibling2->id] ||
+            s_scratch.select_used[move.dst->id] || s_scratch.select_used[move.dst_parent->id]) {
             if (deferred) deferred->push_back(move);
             continue;
         }
         selected.push_back(move);
-        g_scratch.select_used[move.src->id] = true;         g_scratch.select_used_ids.push_back(move.src->id);
-        g_scratch.select_used[move.src_parent->id] = true;  g_scratch.select_used_ids.push_back(move.src_parent->id);
-        g_scratch.select_used[move.sibling1->id] = true;    g_scratch.select_used_ids.push_back(move.sibling1->id);
-        g_scratch.select_used[move.sibling2->id] = true;    g_scratch.select_used_ids.push_back(move.sibling2->id);
-        g_scratch.select_used[move.dst->id] = true;          g_scratch.select_used_ids.push_back(move.dst->id);
-        g_scratch.select_used[move.dst_parent->id] = true;   g_scratch.select_used_ids.push_back(move.dst_parent->id);
+        s_scratch.select_used[move.src->id] = true;         s_scratch.select_used_ids.push_back(move.src->id);
+        s_scratch.select_used[move.src_parent->id] = true;  s_scratch.select_used_ids.push_back(move.src_parent->id);
+        s_scratch.select_used[move.sibling1->id] = true;    s_scratch.select_used_ids.push_back(move.sibling1->id);
+        s_scratch.select_used[move.sibling2->id] = true;    s_scratch.select_used_ids.push_back(move.sibling2->id);
+        s_scratch.select_used[move.dst->id] = true;          s_scratch.select_used_ids.push_back(move.dst->id);
+        s_scratch.select_used[move.dst_parent->id] = true;   s_scratch.select_used_ids.push_back(move.dst_parent->id);
     }
     return selected;
 }
 
-/**
- * Collects the 6 directly-modified nodes per move.
- * @param moves Selected SPR moves.
- * @return Set of nodes directly altered.
- */
+/** Collects the 6 directly-modified nodes per move. */
 static set<PhyloNode*> collectDirtyNodes(const vector<SPRCandidate>& moves) {
     set<PhyloNode*> dirty;
     for (const auto& m : moves) {
@@ -749,7 +743,7 @@ static set<PhyloNode*> collectDirtyNodesWithAncestors(const vector<SPRCandidate>
     for (PhyloNode* node : dirty) {
         PhyloNode* cur = getParent(node);
         while (cur) {
-            if (ancestors.count(cur)) break;  // already traced this path
+            if (ancestors.count(cur)) break;
             ancestors.insert(cur);
             cur = getParent(cur);
         }
@@ -771,12 +765,18 @@ int SPROptimizer::optimizeAtRadius(int radius, int known_score, double wall_seco
         return el > wall_seconds;
     };
 
-    // Initialize bitset for pattern membership
     bitsetInit(tree->fitchNumPatterns());
 
     string radius_str = (radius == 0) ? "unbounded" : to_string(radius);
     cout << "=== Batch SPR (radius " << radius_str << ") ===" << endl;
     cout << "  Starting score: " << cur_score << endl;
+
+    // Per-radius phase timers (us): enum=DFS+evaluate, sel=sort+conflict,
+    // app=topology, upd=Fitch dirty-recompute + diff-update + reorient.
+    long long t_enum_us = 0, t_select_us = 0, t_apply_us = 0, t_update_us = 0;
+    long long total_cands = 0, total_applied = 0, total_evaluated = 0;
+    long long total_pruned = 0, total_skipped = 0;
+    int delta_min = 0, delta_max = 0; long long delta_sum = 0;
 
     vector<bool> dirty_nodes(max_id + 1, false);
     bool has_dirty = false;
@@ -788,7 +788,8 @@ int SPROptimizer::optimizeAtRadius(int radius, int known_score, double wall_seco
     vector<int> dfs_visited_ids;
     dfs_visited_ids.reserve(max_id + 1);
 
-    for (int round = 0; round < MAX_ROUNDS_PER_RADIUS; round++) {
+    int round = 0;
+    for (round = 0; round < MAX_ROUNDS_PER_RADIUS; round++) {
         if (wall_exceeded()) {
             cout << "  Wall budget (" << wall_seconds
                  << "s) reached after " << round << " rounds; stopping" << endl;
@@ -799,6 +800,7 @@ int SPROptimizer::optimizeAtRadius(int radius, int known_score, double wall_seco
         int wall_break_in_src_loop = 0;
         bool dfs_wall_hit = false;
 
+        auto t_enum_start = high_resolution_clock::now();
         for (PhyloNode* src : all_nodes) {
             if (wall_exceeded()) { wall_break_in_src_loop = 1; break; }
             if (src == tree->root || src->degree() < 2) continue;
@@ -818,6 +820,7 @@ int SPROptimizer::optimizeAtRadius(int radius, int known_score, double wall_seco
                 if (!sibling1) sibling1 = neighbor; else if (!sibling2) sibling2 = neighbor;
             }
             if (!sibling1 || !sibling2) continue;
+            assert(sibling1 != sibling2);
 
             SPRSourceState state(tree, src, src_parent);
             if (!state.isValid()) continue;
@@ -834,7 +837,7 @@ int SPROptimizer::optimizeAtRadius(int radius, int known_score, double wall_seco
             DFSContext dfs_ctx = {&state, tree, src, src_parent, sibling1, sibling2,
                                   &candidates, &dfs_visited, &dfs_visited_ids,
                                   radius, &moves_evaluated, &moves_pruned,
-                                  0, tree->fitchMajorArrayFor(src),
+                                  tree->fitchMajorArrayFor(src),
                                   (wall_seconds > 0.0),
                                   loop_start + std::chrono::milliseconds(
                                       (long long)(wall_seconds * 1000.0)),
@@ -847,9 +850,14 @@ int SPROptimizer::optimizeAtRadius(int radius, int known_score, double wall_seco
                 break;
             }
 
-            // Clear bitset fully for next source
             bitsetClear();
         }
+        long long this_enum_us = duration_cast<microseconds>(
+            high_resolution_clock::now() - t_enum_start).count();
+        t_enum_us += this_enum_us;
+        total_evaluated += moves_evaluated;
+        total_pruned += moves_pruned;
+        total_skipped += src_skipped;
 
         if (candidates.empty()) {
             cout << "  Round " << round + 1 << ": no improving moves ("
@@ -857,15 +865,29 @@ int SPROptimizer::optimizeAtRadius(int radius, int known_score, double wall_seco
             if (moves_pruned > 0) cout << ", " << moves_pruned << " pruned";
             if (src_skipped > 0) cout << ", " << src_skipped << " skip";
             if (wall_break_in_src_loop) cout << " [WALL_BREAK]";
-            cout << ")" << endl;
+            cout << ") [enum=" << (this_enum_us / 1000) << "ms]" << endl;
             break;
         }
-        // If wall budget hit mid-src-loop, apply what we collected and exit.
+        total_cands += candidates.size();
+
+        for (const auto& c : candidates) {
+            delta_sum += c.delta;
+            if (c.delta < delta_min) delta_min = c.delta;
+            if (c.delta > delta_max) delta_max = c.delta;
+        }
+
+        // Wall hit mid-src-loop: still apply what we collected, then exit.
         bool break_after_round = (wall_break_in_src_loop != 0);
 
+        auto t_select_start = high_resolution_clock::now();
         vector<SPRCandidate> deferred;
         vector<SPRCandidate> selected = selectMoves(candidates, max_id, &deferred);
+        long long this_select_us = duration_cast<microseconds>(
+            high_resolution_clock::now() - t_select_start).count();
+        t_select_us += this_select_us;
+        total_applied += selected.size();
 
+        auto t_apply_start = high_resolution_clock::now();
         vector<NeighborSave> saves;
         for (const auto& move : selected) {
             saveTopology(move.src_parent, saves);
@@ -878,15 +900,26 @@ int SPROptimizer::optimizeAtRadius(int radius, int known_score, double wall_seco
         int expected = 0;
         for (const auto& move : selected)
             { applySPRMove(move.src_parent, move.sibling1, move.sibling2, move.dst, move.dst_parent); expected += move.delta; }
+        long long this_apply_us = duration_cast<microseconds>(
+            high_resolution_clock::now() - t_apply_start).count();
+        t_apply_us += this_apply_us;
 
+        auto t_update_start = high_resolution_clock::now();
         set<PhyloNode*> dirty_set = collectDirtyNodes(selected);
         int new_score = tree->fitchRecomputeScoreDirty(dirty_set);
+        long long this_update_us = duration_cast<microseconds>(
+            high_resolution_clock::now() - t_update_start).count();
+        t_update_us += this_update_us;
 
         cout << "  Round " << round + 1 << ": " << candidates.size() << " found, "
              << selected.size() << " applied";
         if (!deferred.empty()) cout << " (" << deferred.size() << " deferred)";
         cout << " (exp=" << expected
-             << " act=" << (new_score - cur_score) << ") -> " << new_score << endl;
+             << " act=" << (new_score - cur_score) << ") -> " << new_score
+             << " [enum=" << (this_enum_us / 1000)
+             << " sel=" << (this_select_us / 1000)
+             << " app=" << (this_apply_us / 1000)
+             << " upd=" << (this_update_us / 1000) << "ms]" << endl;
 
         if (new_score > cur_score) {
             undoTopology(saves);
@@ -906,6 +939,7 @@ int SPROptimizer::optimizeAtRadius(int radius, int known_score, double wall_seco
             break;
         }
 
+        auto t_update2_start = high_resolution_clock::now();
         set<PhyloNode*> dirty_with_ancestors = collectDirtyNodesWithAncestors(selected);
         tree->fitchUpdateDiffsDirty(dirty_with_ancestors);
         orientTreeToRoot(tree, max_id);
@@ -913,6 +947,8 @@ int SPROptimizer::optimizeAtRadius(int radius, int known_score, double wall_seco
 
         markDirty(selected, dirty_nodes, (int)all_nodes.size());
         has_dirty = true;
+        t_update_us += duration_cast<microseconds>(
+            high_resolution_clock::now() - t_update2_start).count();
 
         if (break_after_round) {
             cur_score = new_score;
@@ -922,44 +958,41 @@ int SPROptimizer::optimizeAtRadius(int radius, int known_score, double wall_seco
 
         cur_score = new_score;
 
-        // Re-evaluate any conflict-deferred moves under the updated topology
-        // and re-admit those that still strictly improve.
-        if (!deferred.empty()) {
-            int recycled = 0;
-            for (auto& dm : deferred) {
-                if (!dm.src || !dm.src_parent || !dm.dst || !dm.dst_parent) continue;
-                if (dm.src_parent->degree() != BINARY_NODE_DEGREE) continue;
-
-                PhyloNode* sibling1 = NULL, *sibling2 = NULL;
-                FOR_NEIGHBOR_IT(dm.src_parent, dm.src, it) {
-                    PhyloNode* neighbor = (PhyloNode*)(*it)->node;
-                    if (!sibling1) sibling1 = neighbor; else if (!sibling2) sibling2 = neighbor;
-                }
-                if (!sibling1 || !sibling2) continue;
-
-                SPRSourceState state(tree, dm.src, dm.src_parent);
-                if (!state.isValid()) continue;
-
-                state.setupBaseBitset();
-                int new_delta = state.evaluate(dm.dst, dm.dst_parent);
-                bitsetClear();
-                if (new_delta < 0) {
-                    dm.sibling1 = sibling1;
-                    dm.sibling2 = sibling2;
-                    dm.delta = new_delta;
-                    candidates.clear();
-                    candidates.push_back(dm);
-                    recycled++;
-                }
-            }
-            if (recycled > 0) {
-                cout << "  Recycled " << recycled << " deferred moves" << endl;
-            }
-        }
+        // Deferred moves are dropped — proper recycling needs R9b
+        // (sequential within-round apply, requires Phase B incremental Fitch).
+        (void)deferred;
     }
 
+    if (round >= MAX_ROUNDS_PER_RADIUS) {
+        cout << "  WARN: hit MAX_ROUNDS_PER_RADIUS=" << MAX_ROUNDS_PER_RADIUS
+             << " ceiling at radius " << radius_str
+             << " (loop may not have fully converged)" << endl;
+    }
+
+    long long t_total_us = t_enum_us + t_select_us + t_apply_us + t_update_us;
+    auto pct = [&](long long us) -> int {
+        return (t_total_us > 0) ? (int)((us * 100) / t_total_us) : 0;
+    };
     cout << "  Result: " << initial_score << " -> " << cur_score
          << " (delta=" << (initial_score - cur_score) << ")" << endl;
+    cout << "  [radius " << radius_str << " phase totals: "
+         << "enum=" << (t_enum_us / 1000) << "ms (" << pct(t_enum_us) << "%) "
+         << "sel=" << (t_select_us / 1000) << "ms (" << pct(t_select_us) << "%) "
+         << "app=" << (t_apply_us / 1000) << "ms (" << pct(t_apply_us) << "%) "
+         << "upd=" << (t_update_us / 1000) << "ms (" << pct(t_update_us) << "%) "
+         << "total=" << (t_total_us / 1000) << "ms]" << endl;
+    if (total_cands > 0) {
+        cout << "  [radius " << radius_str << " cand stats: "
+             << "found=" << total_cands
+             << " applied=" << total_applied
+             << " evaluated=" << total_evaluated
+             << " pruned=" << total_pruned
+             << " src_skipped=" << total_skipped
+             << " delta_range=[" << delta_min << "," << delta_max << "]"
+             << " delta_sum=" << delta_sum
+             << " delta_mean=" << fixed << setprecision(2)
+             << ((double)delta_sum / (double)total_cands) << "]" << endl;
+    }
     return cur_score;
 }
 
@@ -997,9 +1030,15 @@ int SPROptimizer::optimizeTree(const SPROptimizeOptions& opts) {
     auto wall_exceeded = [&]() {
         return wall_seconds > 0.0 && optimizer_total_elapsed() > wall_seconds;
     };
+    auto main_remaining = [&]() -> double {
+        if (wall_seconds <= 0.0) return 0.0;
+        double remaining_seconds = wall_seconds - optimizer_total_elapsed();
+        return (remaining_seconds < 0.5) ? 0.5 : remaining_seconds;
+    };
 
     // Main pass loop: radius-escalating SPR with strict improvement.
     for (int pass = 0; pass < max_passes; pass++) {
+        if (wall_exceeded()) break;
         int start = tracked_score;
         int consecutive_empty = 0;
         int cur = start;
@@ -1007,7 +1046,7 @@ int SPROptimizer::optimizeTree(const SPROptimizeOptions& opts) {
         for (int r = 1; ; r *= 2) {
             r = min(r, max_radius);
 
-            int after = optimizeAtRadius(r, cur);
+            int after = optimizeAtRadius(r, cur, main_remaining());
 
             if (after >= cur) {
                 consecutive_empty++;
@@ -1021,6 +1060,7 @@ int SPROptimizer::optimizeTree(const SPROptimizeOptions& opts) {
             }
 
             if (r == max_radius) break;
+            if (wall_exceeded()) break;
         }
 
         int end = cur;
@@ -1031,10 +1071,6 @@ int SPROptimizer::optimizeTree(const SPROptimizeOptions& opts) {
              << ", improvement=" << fixed << setprecision(4) << (improvement * 100) << "%)" << endl;
 
         if (end >= start) break;
-        if (improvement < CONVERGENCE_THRESHOLD) {
-            cout << "  Converged (improvement < " << (CONVERGENCE_THRESHOLD * 100) << "%)" << endl;
-            break;
-        }
     }
 
     // Optional parsimony ratchet (Nixon 1999) phase.
@@ -1060,10 +1096,16 @@ int SPROptimizer::optimizeTree(const SPROptimizeOptions& opts) {
         std::vector<nuc_one_hot> pre_ratchet_major = tree->fitchSaveNodeMajor();
         PhyloTree::FitchAuxSnapshot pre_ratchet_aux = tree->fitchSaveAux();
 
-        vector<NeighborSave> overall_best_topology = pre_ratchet_topology;
-        std::vector<nuc_one_hot> overall_best_major = pre_ratchet_major;
-        PhyloTree::FitchAuxSnapshot overall_best_aux = pre_ratchet_aux;
+        // Lazy-allocate overall_best_* (only used when ratchet_runs > 1).
+        vector<NeighborSave> overall_best_topology;
+        std::vector<nuc_one_hot> overall_best_major;
+        PhyloTree::FitchAuxSnapshot overall_best_aux;
         int overall_best_score = tracked_score;
+        if (ratchet_runs > 1) {
+            overall_best_topology = pre_ratchet_topology;
+            overall_best_major = pre_ratchet_major;
+            overall_best_aux = pre_ratchet_aux;
+        }
 
         for (int run = 0; run < ratchet_runs; run++) {
             if (ratchet_runs > 1 && run > 0) {
@@ -1092,16 +1134,16 @@ int SPROptimizer::optimizeTree(const SPROptimizeOptions& opts) {
                 }
                 int reweighted = 0;
                 for (int ptn = 0; ptn < nptn; ptn++) {
-                    if ((rng() & 3u) == 0u) {
-                        tree->fitchScalePatternFreq(ptn, 2);
+                    if ((rng() & RATCHET_REWEIGHT_DENOM_MASK) == 0u) {
+                        tree->fitchScalePatternFreq(ptn, RATCHET_REWEIGHT_FACTOR);
                         reweighted++;
                     }
                 }
 
                 auto remaining_budget = [&]() -> double {
                     if (wall_seconds <= 0.0) return 0.0;
-                    double r = wall_seconds - optimizer_total_elapsed();
-                    return (r < 0.5) ? 0.5 : r;
+                    double remaining_seconds = wall_seconds - optimizer_total_elapsed();
+                    return (remaining_seconds < 0.5) ? 0.5 : remaining_seconds;
                 };
 
                 int weighted_score = tree->fitchRecomputeWithDiffs();
@@ -1199,13 +1241,69 @@ int SPROptimizer::optimizeTree(const SPROptimizeOptions& opts) {
         }
     }
 
-    // Use tracked score — caller will do its own computeParsimony verification
-    current_parsimony_score = tracked_score;
-    best_score_seen = current_parsimony_score;
+    if (opts.tbr_iters > 0 && !wall_exceeded()) {
+        cout << "\n=== TBR phase (iters=" << opts.tbr_iters
+             << ", radius_a=" << opts.tbr_radius_a
+             << ", radius_b=" << opts.tbr_radius_b
+             << ", interleaved with SPR) ===" << endl;
+        // Alternation: one best TBR move, then SPR-converge, repeat.
+        for (int it = 0; it < opts.tbr_iters; it++) {
+            if (wall_exceeded()) break;
+            int pre_iter = tracked_score;
 
-    cout << "\nSPR complete: " << initial_score << " -> " << current_parsimony_score
-         << " (total delta=" << (initial_score - current_parsimony_score) << ")" << endl;
+            double tbr_remaining = (wall_seconds > 0.0)
+                ? std::max(0.5, wall_seconds - optimizer_total_elapsed()) : 0.0;
+            int after_tbr = optimizeTBRAtRadius(tree, opts.tbr_radius_a,
+                                                 opts.tbr_radius_b,
+                                                 tracked_score, tbr_remaining,
+                                                 /*max_rounds=*/1);
+            if (after_tbr >= pre_iter) {
+                cout << "  TBR phase converged at " << pre_iter
+                     << " (no improving TBR move past SPR-local optimum)" << endl;
+                break;
+            }
+            tracked_score = after_tbr;
+
+            orientTreeToRoot(tree, max_id);
+            SPRDeltaExact::precomputeDepths(tree);
+
+            auto spr_remaining = [&]() -> double {
+                if (wall_seconds <= 0.0) return 0.0;
+                double remaining_seconds = wall_seconds - optimizer_total_elapsed();
+                return (remaining_seconds < 0.5) ? 0.5 : remaining_seconds;
+            };
+            const int kInterleaveSPRPasses = 10;
+            for (int pass = 0; pass < kInterleaveSPRPasses; pass++) {
+                if (wall_exceeded()) break;
+                int spr_pre = tracked_score;
+                int consecutive_empty = 0;
+                int cur = spr_pre;
+                for (int r = 1; ; r *= 2) {
+                    r = std::min(r, max_radius);
+                    int after = optimizeAtRadius(r, cur, spr_remaining());
+                    if (after >= cur) {
+                        consecutive_empty++;
+                        if (consecutive_empty >= RADIUS_STALL_LIMIT && r < max_radius)
+                            break;
+                    } else {
+                        consecutive_empty = 0;
+                        cur = after;
+                    }
+                    if (r == max_radius) break;
+                    if (wall_exceeded()) break;
+                }
+                tracked_score = cur;
+                if (cur >= spr_pre) break;
+            }
+            cout << "  TBR+SPR iter " << (it + 1) << ": " << pre_iter
+                 << " -> " << tracked_score << " (delta=" << (pre_iter - tracked_score)
+                 << ")" << endl;
+        }
+    }
+
+    cout << "\nSPR complete: " << initial_score << " -> " << tracked_score
+         << " (total delta=" << (initial_score - tracked_score) << ")" << endl;
 
     setActiveSPRTree(nullptr);
-    return current_parsimony_score;
+    return tracked_score;
 }

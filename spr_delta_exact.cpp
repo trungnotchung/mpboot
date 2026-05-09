@@ -56,7 +56,7 @@ static int sparseBinaryDelta(PhyloNode* src, PhyloNode* src_parent,
 
     const nuc_one_hot* src_states = tree->fitchMajorArrayFor(src);
     const nuc_one_hot* sibling_st = tree->fitchMajorArrayFor(sibling);
-    const nuc_one_hot* sp_states = tree->fitchMajorArrayFor(src_parent);
+    const nuc_one_hot* src_parent_states = tree->fitchMajorArrayFor(src_parent);
     const nuc_one_hot* dst_states = tree->fitchMajorArrayFor(dst);
 
     int score = 0;
@@ -67,9 +67,9 @@ static int sparseBinaryDelta(PhyloNode* src, PhyloNode* src_parent,
         // ========== CASE A: dst in sibling's subtree ==========
         std::vector<PathStep> path_to_sp = buildPath(dst, dst_parent, src_parent, tree);
 
-        PhyloNode* gp_sibling = findOtherChild(grandparent, SPRMutationOps::getParent(grandparent), src_parent);
-        const nuc_one_hot* gp_sibling_states = gp_sibling ? tree->fitchMajorArrayFor(gp_sibling) : nullptr;
-        const nuc_one_hot* gp_states = tree->fitchMajorArrayFor(grandparent);
+        PhyloNode* grandparent_sibling = findOtherChild(grandparent, SPRMutationOps::getParent(grandparent), src_parent);
+        const nuc_one_hot* grandparent_sibling_states = grandparent_sibling ? tree->fitchMajorArrayFor(grandparent_sibling) : nullptr;
+        const nuc_one_hot* grandparent_states = tree->fitchMajorArrayFor(grandparent);
 
         std::vector<PathStep> path_above_gp = buildPath(
             grandparent, SPRMutationOps::getParent(grandparent), nullptr, tree);
@@ -86,7 +86,7 @@ static int sparseBinaryDelta(PhyloNode* src, PhyloNode* src_parent,
         for (int ptn : affected) {
             int freq = tree->fitchPatternFreq(ptn);
             nuc_one_hot src_fitch = src_states[ptn], sibling_fitch = sibling_st[ptn];
-            nuc_one_hot dst_fitch = dst_states[ptn], sp_fitch = sp_states[ptn];
+            nuc_one_hot dst_fitch = dst_states[ptn], src_parent_fitch = src_parent_states[ptn];
 
             // 1. src_parent penalty change
             score += (((src_fitch & dst_fitch) ? 0 : 1) - ((src_fitch & sibling_fitch) ? 0 : 1)) * freq;
@@ -101,14 +101,14 @@ static int sparseBinaryDelta(PhyloNode* src, PhyloNode* src_parent,
 
             // 3. At grandparent
             if (grandparent->isLeaf()) {
-                score += rootEdgeDelta(gp_states[ptn], sp_fitch, new_sibling_fitch) * freq;
+                score += rootEdgeDelta(grandparent_states[ptn], src_parent_fitch, new_sibling_fitch) * freq;
             } else {
-                nuc_one_hot gp_sibling_fitch = gp_sibling_states ? gp_sibling_states[ptn] : 0xF;
-                nuc_one_hot new_gp_fitch;
-                score += penaltyDelta(sp_fitch, new_sibling_fitch, gp_sibling_fitch, new_gp_fitch) * freq;
+                nuc_one_hot grandparent_sibling_fitch = grandparent_sibling_states ? grandparent_sibling_states[ptn] : NUC_N;
+                nuc_one_hot new_grandparent_fitch;
+                score += penaltyDelta(src_parent_fitch, new_sibling_fitch, grandparent_sibling_fitch, new_grandparent_fitch) * freq;
 
-                if (new_gp_fitch != gp_states[ptn]) {
-                    nuc_one_hot old_prop = gp_states[ptn], new_prop = new_gp_fitch;
+                if (new_grandparent_fitch != grandparent_states[ptn]) {
+                    nuc_one_hot old_prop = grandparent_states[ptn], new_prop = new_grandparent_fitch;
                     propagatePath(path_above_gp, ptn, freq, old_prop, new_prop, score);
                 }
             }
@@ -149,11 +149,11 @@ static int sparseBinaryDelta(PhyloNode* src, PhyloNode* src_parent,
         for (int ptn : affected) {
             int freq = tree->fitchPatternFreq(ptn);
             nuc_one_hot src_fitch = src_states[ptn], sibling_fitch = sibling_st[ptn];
-            nuc_one_hot sp_fitch = sp_states[ptn];
+            nuc_one_hot src_parent_fitch = src_parent_states[ptn];
             int old_sp_penalty = (src_fitch & sibling_fitch) ? 0 : 1;
 
             // 1. src-side propagation
-            nuc_one_hot src_old = sp_fitch, src_new = sibling_fitch;
+            nuc_one_hot src_old = src_parent_fitch, src_new = sibling_fitch;
             propagatePath(src_path, ptn, freq, src_old, src_new, score);
 
             nuc_one_hot src_child_old = src_branch_states[ptn];
@@ -163,28 +163,28 @@ static int sparseBinaryDelta(PhyloNode* src, PhyloNode* src_parent,
             score += (((src_fitch & src_child_new) ? 0 : 1) - old_sp_penalty) * freq;
 
             // 3. New src_parent Fitch state
-            nuc_one_hot new_sp_fitch = fitchMerge(src_fitch, src_child_new);
+            nuc_one_hot new_src_parent_fitch = fitchMerge(src_fitch, src_child_new);
 
-            // 4. At lca: child changed from src_child_old to new_sp_fitch
-            nuc_one_hot lca_sib_fitch = lca_sibling_states ? lca_sibling_states[ptn] : 0xF;
+            // 4. At lca: child changed from src_child_old to new_src_parent_fitch
+            nuc_one_hot lca_sib_fitch = lca_sibling_states ? lca_sibling_states[ptn] : NUC_N;
             nuc_one_hot old_lca_fitch = lca_states[ptn];
             nuc_one_hot new_lca_fitch;
-            score += penaltyDelta(src_child_old, new_sp_fitch, lca_sib_fitch, new_lca_fitch) * freq;
+            score += penaltyDelta(src_child_old, new_src_parent_fitch, lca_sib_fitch, new_lca_fitch) * freq;
 
             // 5. Propagate above lca
             if (!lca_parent && lca->isLeaf()) {
-                score += rootEdgeDelta(lca_states[ptn], src_child_old, new_sp_fitch) * freq;
+                score += rootEdgeDelta(lca_states[ptn], src_child_old, new_src_parent_fitch) * freq;
             } else if (new_lca_fitch != old_lca_fitch && lca_parent) {
                 if (lca_parent->isLeaf()) {
                     score += rootEdgeDelta(lca_parent_states[ptn], old_lca_fitch, new_lca_fitch) * freq;
                 } else {
                     nuc_one_hot lca_parent_sib_fitch = lca_parent_sibling_states
-                        ? lca_parent_sibling_states[ptn] : 0xF;
+                        ? lca_parent_sibling_states[ptn] : NUC_N;
                     nuc_one_hot new_lca_parent_fitch;
                     score += penaltyDelta(old_lca_fitch, new_lca_fitch, lca_parent_sib_fitch,
                                           new_lca_parent_fitch) * freq;
 
-                    if (new_lca_parent_fitch != (lca_parent_states ? lca_parent_states[ptn] : (nuc_one_hot)0xF)) {
+                    if (new_lca_parent_fitch != (lca_parent_states ? lca_parent_states[ptn] : NUC_N)) {
                         nuc_one_hot old_prop = lca_parent_states[ptn], new_prop = new_lca_parent_fitch;
                         propagatePath(above_lca_parent, ptn, freq, old_prop, new_prop, score);
                     }
@@ -219,18 +219,18 @@ static int sparseBinaryDelta(PhyloNode* src, PhyloNode* src_parent,
         for (int ptn : affected) {
             int freq = tree->fitchPatternFreq(ptn);
             nuc_one_hot src_fitch = src_states[ptn], sibling_fitch = sibling_st[ptn];
-            nuc_one_hot dst_fitch = dst_states[ptn], sp_fitch = sp_states[ptn];
+            nuc_one_hot dst_fitch = dst_states[ptn], src_parent_fitch = src_parent_states[ptn];
 
             // 1. src_parent penalty change
             score += (((src_fitch & dst_fitch) ? 0 : 1) - ((src_fitch & sibling_fitch) ? 0 : 1)) * freq;
 
-            // 2. src-side: sp_fitch → sibling_fitch
-            nuc_one_hot src_old = sp_fitch, src_new = sibling_fitch;
+            // 2. src-side: src_parent_fitch → sibling_fitch
+            nuc_one_hot src_old = src_parent_fitch, src_new = sibling_fitch;
             propagatePath(src_path, ptn, freq, src_old, src_new, score);
 
-            // 3. dst-side: dst_fitch → new_sp_fitch
-            nuc_one_hot new_sp_fitch = fitchMerge(src_fitch, dst_fitch);
-            nuc_one_hot dst_old = dst_fitch, dst_new = new_sp_fitch;
+            // 3. dst-side: dst_fitch → new_src_parent_fitch
+            nuc_one_hot new_src_parent_fitch = fitchMerge(src_fitch, dst_fitch);
+            nuc_one_hot dst_old = dst_fitch, dst_new = new_src_parent_fitch;
             propagatePath(dst_path, ptn, freq, dst_old, dst_new, score);
 
             // 4. At LCA: combine changes from both sides

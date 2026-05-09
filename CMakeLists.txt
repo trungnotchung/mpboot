@@ -407,6 +407,7 @@ onehot_encoding.cpp
 spr_context.cpp
 spr_mutation_ops.cpp
 spr_delta_exact.cpp
+tbr_primitives.cpp
 test_spr_unit.cpp
 test_spr_delta.cpp
 )

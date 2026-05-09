@@ -1567,6 +1567,9 @@ struct Params {
     int spr_ratchet_seed;           // RNG seed for ratchet pattern reweighting
     int spr_ratchet_runs;           // Best-of-K independent ratchet runs (1 = single)
     double spr_wall_seconds;        // Total optimizer wall-clock cap in seconds (<=0 = no cap)
+    int spr_tbr_iters;              // TBR rounds after SPR converges (0 = disabled)
+    int spr_tbr_radius_a;           // BFS radius in subtree A from bisection scar
+    int spr_tbr_radius_b;           // BFS radius in subtree B from bisection scar
 
     /*
      * Diep: option for comparing PLL site parsimony and IQTree

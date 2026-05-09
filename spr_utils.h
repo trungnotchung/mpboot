@@ -6,6 +6,9 @@
 #include <vector>
 #include <algorithm>
 
+/** Binary internal node degree: 1 parent + 2 children. */
+static const int BINARY_NODE_DEGREE = 3;
+
 /**
  * Snapshot of a single neighbor pointer for SPR undo.
  */
