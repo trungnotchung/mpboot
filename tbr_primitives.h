@@ -81,12 +81,12 @@ int runTBRUnitTests(PhyloTree* tree);
 /**
  * "Best single improving move per round" TBR hill climber. Each round
  * enumerates internal binary edges, bisects, BFS-enumerates alt edges within
- * (radius_a, radius_b) hops in each subtree, scores via evaluateTBRMove,
- * applies the single best improving move, and repeats.
- * @param radius_a  Max BFS depth in subtree A. 2+ to enable real TBR moves.
- * @param radius_b  Same for subtree B.
+ * tbr_max_radius hops in each subtree, scores via evaluateTBRMove, applies
+ * the single best improving move, and repeats.
+ * @param tbr_max_radius  Max BFS depth (used for both subtrees A and B).
+ *                        2+ enables real TBR moves.
  */
-int optimizeTBRAtRadius(PhyloTree* tree, int radius_a, int radius_b,
+int optimizeTBRAtRadius(PhyloTree* tree, int tbr_max_radius,
                         int known_score = 0, double wall_seconds = 0.0,
                         int max_rounds = 1000000);
 

@@ -805,8 +805,7 @@ void parseArg(int argc, char *argv[], Params &params) {
     params.spr_ratchet_runs = 1;        // Single ratchet run by default
     params.spr_wall_seconds = 0.0;      // Optimizer wall-clock cap (<=0 = no cap, default unbounded)
     params.spr_tbr_iters = 0;           // TBR disabled by default
-    params.spr_tbr_radius_a = 2;
-    params.spr_tbr_radius_b = 2;
+    params.tbr_max_radius = 5;          // BFS depth (Dung's thesis default)
     params.test_site_pars = false;
     params.auto_vectorize = false;
     params.sort_alignment = true;
@@ -2527,18 +2526,11 @@ void parseArg(int argc, char *argv[], Params &params) {
             	params.spr_tbr_iters = convert_int(argv[cnt]);
             	continue;
             }
-			if(strcmp(argv[cnt], "-spr_tbr_radius_a") == 0){
+			if(strcmp(argv[cnt], "-tbr_max_radius") == 0){
             	cnt++;
                 if (cnt >= argc)
-                    throw "Use -spr_tbr_radius_a <BFS depth in subtree A>";
-            	params.spr_tbr_radius_a = convert_int(argv[cnt]);
-            	continue;
-            }
-			if(strcmp(argv[cnt], "-spr_tbr_radius_b") == 0){
-            	cnt++;
-                if (cnt >= argc)
-                    throw "Use -spr_tbr_radius_b <BFS depth in subtree B>";
-            	params.spr_tbr_radius_b = convert_int(argv[cnt]);
+                    throw "Use -tbr_max_radius <BFS depth from bisection scar>";
+            	params.tbr_max_radius = convert_int(argv[cnt]);
             	continue;
             }
 			if(strcmp(argv[cnt], "-sitepars") == 0){

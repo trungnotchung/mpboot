@@ -571,7 +571,7 @@ static void enumerateEdgesInSubtree(PhyloNode* seed1, PhyloNode* seed2,
     }
 }
 
-int optimizeTBRAtRadius(PhyloTree* tree, int radius_a, int radius_b,
+int optimizeTBRAtRadius(PhyloTree* tree, int tbr_max_radius,
                         int known_score, double wall_seconds, int max_rounds) {
     int cur_score = (known_score > 0) ? known_score : tree->fitchRecomputeScore();
     int initial = cur_score;
@@ -584,8 +584,7 @@ int optimizeTBRAtRadius(PhyloTree* tree, int radius_a, int radius_b,
         return el > wall_seconds;
     };
 
-    cout << "=== TBR optimize (radius_a=" << radius_a
-         << ", radius_b=" << radius_b
+    cout << "=== TBR optimize (tbr_max_radius=" << tbr_max_radius
          << ", start=" << cur_score << ") ===" << endl;
 
     int round = 0;
@@ -616,8 +615,8 @@ int optimizeTBRAtRadius(PhyloTree* tree, int radius_a, int radius_b,
             if (!s.valid) continue;
 
             vector<pair<PhyloNode*, PhyloNode*>> alt_a, alt_b;
-            enumerateEdgesInSubtree(s.edge_p_sib1, s.edge_p_sib2, radius_a, alt_a);
-            enumerateEdgesInSubtree(s.edge_q_sib1, s.edge_q_sib2, radius_b, alt_b);
+            enumerateEdgesInSubtree(s.edge_p_sib1, s.edge_p_sib2, tbr_max_radius, alt_a);
+            enumerateEdgesInSubtree(s.edge_q_sib1, s.edge_q_sib2, tbr_max_radius, alt_b);
 
             // Reconnect at originals so the tree is whole again before each
             // candidate's own bisect/reconnect/undo cycle.

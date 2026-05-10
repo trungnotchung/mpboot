@@ -194,9 +194,8 @@ void placeNewSamplesOntoExistingTree(Params &params) {
 		opts.ratchet_seed  = params.spr_ratchet_seed;
 		opts.ratchet_runs  = params.spr_ratchet_runs;
 		opts.wall_seconds  = params.spr_wall_seconds;
-		opts.tbr_iters     = params.spr_tbr_iters;
-		opts.tbr_radius_a  = params.spr_tbr_radius_a;
-		opts.tbr_radius_b  = params.spr_tbr_radius_b;
+		opts.tbr_iters      = params.spr_tbr_iters;
+		opts.tbr_max_radius = params.tbr_max_radius;
 		int best_score = optimizer.optimizeTree(opts);
 
 		double wall_secs = std::chrono::duration<double>(

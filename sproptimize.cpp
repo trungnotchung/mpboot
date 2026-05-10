@@ -1243,8 +1243,7 @@ int SPROptimizer::optimizeTree(const SPROptimizeOptions& opts) {
 
     if (opts.tbr_iters > 0 && !wall_exceeded()) {
         cout << "\n=== TBR phase (iters=" << opts.tbr_iters
-             << ", radius_a=" << opts.tbr_radius_a
-             << ", radius_b=" << opts.tbr_radius_b
+             << ", tbr_max_radius=" << opts.tbr_max_radius
              << ", interleaved with SPR) ===" << endl;
         // Alternation: one best TBR move, then SPR-converge, repeat.
         for (int it = 0; it < opts.tbr_iters; it++) {
@@ -1253,8 +1252,7 @@ int SPROptimizer::optimizeTree(const SPROptimizeOptions& opts) {
 
             double tbr_remaining = (wall_seconds > 0.0)
                 ? std::max(0.5, wall_seconds - optimizer_total_elapsed()) : 0.0;
-            int after_tbr = optimizeTBRAtRadius(tree, opts.tbr_radius_a,
-                                                 opts.tbr_radius_b,
+            int after_tbr = optimizeTBRAtRadius(tree, opts.tbr_max_radius,
                                                  tracked_score, tbr_remaining,
                                                  /*max_rounds=*/1);
             if (after_tbr >= pre_iter) {

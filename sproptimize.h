@@ -13,11 +13,10 @@ struct SPROptimizeOptions {
     int ratchet_runs  = 1;
     double wall_seconds = 0.0;  // <=0 = no cap (default unbounded)
     // TBR (Tree Bisection and Reconnection) post-SPR pass.
-    // Disabled when tbr_iters == 0. tbr_radius_a / tbr_radius_b are BFS depths
-    // from the bisection scar in each subtree; >=2 enables actual TBR moves.
-    int tbr_iters     = 0;
-    int tbr_radius_a  = 2;
-    int tbr_radius_b  = 2;
+    // Disabled when tbr_iters == 0. tbr_max_radius is the BFS depth from the
+    // bisection scar (used for both subtrees); >=2 enables actual TBR moves.
+    int tbr_iters      = 0;
+    int tbr_max_radius = 5;
 };
 
 class SPROptimizer {
