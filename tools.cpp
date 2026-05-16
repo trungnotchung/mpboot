@@ -552,12 +552,10 @@ void get2RandNumb(const int size, int &first, int &second) {
 
 void parseArg(int argc, char *argv[], Params &params) {
     int cnt;
-	params.num_existing_sequences = INT_MAX;
-	params.num_missing_sequences = 0;
-	params.mutation_tree_file = NULL;
-	params.ppon = false;
-	params.pp_verify_preserved_tree = false;
-	params.original_tree_file = NULL;
+	params.pp_num_existing = INT_MAX;
+	params.pp_num_missing = 0;
+	params.pp_tree_file = NULL;
+	params.pp_on = false;
     verbose_mode = VB_MIN;
     params.tree_gen = NONE;
     params.user_file = NULL;
@@ -793,19 +791,15 @@ void parseArg(int argc, char *argv[], Params &params) {
     params.spr_parsimony = true;// Diep: Revert for UFBoot-MP release
     params.spr_mintrav = 1; // same as PLL
     params.spr_maxtrav = 6; // PLL default is 20
-    params.spr_optimize = false; // Post-placement SPR optimization (disabled by default)
-    params.spr_test = false;     // SPR unit tests (disabled by default)
-    params.test_delta = false;   // SPRDeltaExact debug tests (disabled by default)
-    params.spr_max_iterations = 1000; // Maximum optimization iterations
-    params.spr_min_improvement = 0.0005; // Convergence threshold: 0.05%
-    params.spr_max_passes = 10;      // Default: up to 10 passes (stops early on convergence)
-    params.spr_max_radius = 32;      // Default: max radius 32 (0=unbounded)
-    params.spr_ratchet_iterations = 0;  // Parsimony ratchet iterations (0 = disabled)
-    params.spr_ratchet_seed = 42;       // Default RNG seed
-    params.spr_ratchet_runs = 1;        // Single ratchet run by default
-    params.spr_wall_seconds = 0.0;      // Optimizer wall-clock cap (<=0 = no cap, default unbounded)
-    params.spr_tbr_iters = 0;           // TBR disabled by default
-    params.tbr_max_radius = 5;          // BFS depth (Dung's thesis default)
+    params.pp_optimize        = false;  // Post-placement optimization (SPR + ratchet + TBR).
+    params.pp_max_passes      = 10;     // Max SPR passes (stops early on convergence).
+    params.pp_max_radius      = 32;     // Max SPR radius (0 = unbounded).
+    params.pp_wall_seconds    = 0.0;    // Wall-clock cap (<= 0 = no cap).
+    params.pp_ratchet_iters   = 0;      // Parsimony ratchet iterations (0 = disabled).
+    params.pp_ratchet_seed    = 42;     // RNG seed for ratchet pattern reweighting.
+    params.pp_ratchet_runs    = 1;      // Best-of-K independent ratchet runs.
+    params.pp_tbr_iters       = 0;      // TBR rounds (0 = disabled).
+    params.pp_tbr_max_radius  = 5;      // BFS depth (Dung's thesis default).
     params.test_site_pars = false;
     params.auto_vectorize = false;
     params.sort_alignment = true;
@@ -872,36 +866,25 @@ void parseArg(int argc, char *argv[], Params &params) {
             }
 			if (strcmp(argv[cnt], "-pp_on") == 0)
 			{
-				params.ppon = true;
-				continue;
-			}
-			if (strcmp(argv[cnt], "-pp_origin") == 0)
-			{
-				cnt++;
-				params.original_tree_file = argv[cnt];
+				params.pp_on = true;
 				continue;
 			}
 			if (strcmp(argv[cnt], "-pp_n") == 0)
 			{
 				cnt++;
-				params.num_existing_sequences = convert_int(argv[cnt]);
+				params.pp_num_existing = convert_int(argv[cnt]);
 				continue;
 			}
 			if (strcmp(argv[cnt], "-pp_k") == 0)
 			{
 				cnt++;
-				params.num_missing_sequences = convert_int(argv[cnt]);
+				params.pp_num_missing = convert_int(argv[cnt]);
 				continue;
 			}
 			if (strcmp(argv[cnt], "-pp_tree") == 0)
 			{
 				cnt++;
-				params.mutation_tree_file = argv[cnt];
-				continue;
-			}
-			if (strcmp(argv[cnt], "-pp_test_optimize") == 0)
-			{
-				params.pp_verify_preserved_tree = true;
+				params.pp_tree_file = argv[cnt];
 				continue;
 			}
 			if (strcmp(argv[cnt], "-ho") == 0 || strcmp(argv[cnt], "-?") == 0) {
@@ -2449,88 +2432,64 @@ void parseArg(int argc, char *argv[], Params &params) {
             	params.sprDist = params.spr_maxtrav; // Diep: hopefully this speed the pllMakeParsimonyTreeFast...
             	continue;
             }
-			if(strcmp(argv[cnt], "-spr_optimize") == 0){
-            	params.spr_optimize = true;
+			if(strcmp(argv[cnt], "-pp_optimize") == 0){
+            	params.pp_optimize = true;
             	continue;
             }
-			if(strcmp(argv[cnt], "-spr_test") == 0){
-            	params.spr_test = true;
-            	params.spr_optimize = true; // tests need placement to run first
-            	continue;
-            }
-			if(strcmp(argv[cnt], "-test_delta") == 0){
-            	params.test_delta = true;
-            	params.spr_optimize = true; // tests need placement to run first
-            	continue;
-            }
-			if(strcmp(argv[cnt], "-spr_max_iter") == 0){
+			if(strcmp(argv[cnt], "-pp_max_passes") == 0){
             	cnt++;
                 if (cnt >= argc)
-                    throw "Use -spr_max_iter <max iterations>";
-            	params.spr_max_iterations = convert_int(argv[cnt]);
+                    throw "Use -pp_max_passes <number>";
+            	params.pp_max_passes = convert_int(argv[cnt]);
             	continue;
             }
-			if(strcmp(argv[cnt], "-spr_min_improve") == 0){
+			if(strcmp(argv[cnt], "-pp_max_radius") == 0){
             	cnt++;
                 if (cnt >= argc)
-                    throw "Use -spr_min_improve <min improvement threshold>";
-            	params.spr_min_improvement = convert_double(argv[cnt]);
+                    throw "Use -pp_max_radius <number> (0=unbounded)";
+            	params.pp_max_radius = convert_int(argv[cnt]);
             	continue;
             }
-			if(strcmp(argv[cnt], "-spr_max_passes") == 0){
+			if(strcmp(argv[cnt], "-pp_wall_seconds") == 0){
             	cnt++;
                 if (cnt >= argc)
-                    throw "Use -spr_max_passes <number>";
-            	params.spr_max_passes = convert_int(argv[cnt]);
+                    throw "Use -pp_wall_seconds <seconds, <=0 disables>";
+            	params.pp_wall_seconds = convert_double(argv[cnt]);
             	continue;
             }
-			if(strcmp(argv[cnt], "-spr_max_radius") == 0){
+			if(strcmp(argv[cnt], "-pp_ratchet_iter") == 0){
             	cnt++;
                 if (cnt >= argc)
-                    throw "Use -spr_max_radius <number> (0=unbounded)";
-            	params.spr_max_radius = convert_int(argv[cnt]);
+                    throw "Use -pp_ratchet_iter <number>";
+            	params.pp_ratchet_iters = convert_int(argv[cnt]);
             	continue;
             }
-			if(strcmp(argv[cnt], "-spr_ratchet_iter") == 0){
+			if(strcmp(argv[cnt], "-pp_ratchet_seed") == 0){
             	cnt++;
                 if (cnt >= argc)
-                    throw "Use -spr_ratchet_iter <number>";
-            	params.spr_ratchet_iterations = convert_int(argv[cnt]);
+                    throw "Use -pp_ratchet_seed <seed>";
+            	params.pp_ratchet_seed = convert_int(argv[cnt]);
             	continue;
             }
-			if(strcmp(argv[cnt], "-spr_ratchet_seed") == 0){
+			if(strcmp(argv[cnt], "-pp_ratchet_runs") == 0){
             	cnt++;
                 if (cnt >= argc)
-                    throw "Use -spr_ratchet_seed <seed>";
-            	params.spr_ratchet_seed = convert_int(argv[cnt]);
+                    throw "Use -pp_ratchet_runs <K>";
+            	params.pp_ratchet_runs = convert_int(argv[cnt]);
             	continue;
             }
-			if(strcmp(argv[cnt], "-spr_ratchet_runs") == 0){
+			if(strcmp(argv[cnt], "-pp_tbr_iter") == 0){
             	cnt++;
                 if (cnt >= argc)
-                    throw "Use -spr_ratchet_runs <K>";
-            	params.spr_ratchet_runs = convert_int(argv[cnt]);
+                    throw "Use -pp_tbr_iter <rounds, 0 disables>";
+            	params.pp_tbr_iters = convert_int(argv[cnt]);
             	continue;
             }
-			if(strcmp(argv[cnt], "-spr_wall_seconds") == 0){
+			if(strcmp(argv[cnt], "-pp_tbr_max_radius") == 0){
             	cnt++;
                 if (cnt >= argc)
-                    throw "Use -spr_wall_seconds <seconds, <=0 disables>";
-            	params.spr_wall_seconds = convert_double(argv[cnt]);
-            	continue;
-            }
-			if(strcmp(argv[cnt], "-spr_tbr_iter") == 0){
-            	cnt++;
-                if (cnt >= argc)
-                    throw "Use -spr_tbr_iter <rounds, 0 disables>";
-            	params.spr_tbr_iters = convert_int(argv[cnt]);
-            	continue;
-            }
-			if(strcmp(argv[cnt], "-tbr_max_radius") == 0){
-            	cnt++;
-                if (cnt >= argc)
-                    throw "Use -tbr_max_radius <BFS depth from bisection scar>";
-            	params.tbr_max_radius = convert_int(argv[cnt]);
+                    throw "Use -pp_tbr_max_radius <BFS depth from bisection scar>";
+            	params.pp_tbr_max_radius = convert_int(argv[cnt]);
             	continue;
             }
 			if(strcmp(argv[cnt], "-sitepars") == 0){

@@ -1,31 +1,23 @@
-#include "sproptimize.h"
+#include "phylotree.h"
+#include "phylonode.h"
+#include "spr_phase.h"
 #include "spr_context.h"
 #include "spr_delta_exact.h"
 #include "spr_mutation_ops.h"
 #include "spr_utils.h"
-#include "tbr_primitives.h"
-#include "phylotree.h"
-#include "phylonode.h"
+
+#include <algorithm>
+#include <cassert>
+#include <chrono>
+#include <iomanip>
 #include <iostream>
 #include <queue>
 #include <set>
-#include <chrono>
-#include <algorithm>
-#include <cassert>
-#include <iomanip>
-#include <random>
-#include <cmath>
 
 using namespace std;
 using namespace std::chrono;
 
 static const int MAX_ROUNDS_PER_RADIUS = 100;
-static const int RADIUS_STALL_LIMIT = 2;
-static const double RATCHET_INV_TEMPERATURE = 2.0;
-static const int    RATCHET_ZERO_ACCEPT_PCT = 50;
-// Ratchet pattern reweight: each pattern has a 1-in-(REWEIGHT_DENOM) chance of being scaled by REWEIGHT_FACTOR.
-static const unsigned RATCHET_REWEIGHT_DENOM_MASK = 3u;  // (rng() & MASK) == 0 → ~25% reweight
-static const int      RATCHET_REWEIGHT_FACTOR     = 2;
 
 namespace {
 struct OptimizerScratch {
@@ -410,10 +402,8 @@ struct SPRCandidate {
     PhyloNode* sibling2;
     PhyloNode* dst;
     PhyloNode* dst_parent;
-    int delta;          ///< <0 = improvement, ==0 = plateau (drift).
+    int delta;
 };
-
-using NeighborSave = SPRNeighborSave;
 
 /**
  * BFS from root, returning every reachable node once.
@@ -421,7 +411,7 @@ using NeighborSave = SPRNeighborSave;
  * @param max_id Maximum node id.
  * @return Vector of all nodes reachable from tree->root.
  */
-static vector<PhyloNode*> collectAllNodes(PhyloTree* tree, int max_id) {
+vector<PhyloNode*> collectAllNodes(PhyloTree* tree, int max_id) {
     vector<PhyloNode*> nodes;
     vector<bool> visited(max_id + 1, false);
     queue<PhyloNode*> q;
@@ -444,7 +434,7 @@ static vector<PhyloNode*> collectAllNodes(PhyloTree* tree, int max_id) {
  * @param tree   Tree to re-orient.
  * @param max_id Maximum node id.
  */
-static void orientTreeToRoot(PhyloTree* tree, int max_id) {
+void orientTreeToRoot(PhyloTree* tree, int max_id) {
     PhyloNode* root = (PhyloNode*)tree->root;
 
     if ((int)s_scratch.orient_visited.size() < max_id + 1) {
@@ -669,14 +659,6 @@ static void searchDestinations(const DFSContext& ctx, PhyloNode* node, PhyloNode
     }
 }
 
-SPROptimizer::SPROptimizer(PhyloTree* tree) : tree(tree) {
-    if (!tree) throw std::invalid_argument("SPROptimizer: tree cannot be NULL");
-    if (!tree->root) throw std::invalid_argument("SPROptimizer: tree->root must be set");
-    if (!tree->aln) throw std::invalid_argument("SPROptimizer: tree->aln must be set");
-}
-
-SPROptimizer::~SPROptimizer() {}
-
 
 /**
  * Greedily picks a non-conflicting batch of moves (sorted by delta).
@@ -752,7 +734,7 @@ static set<PhyloNode*> collectDirtyNodesWithAncestors(const vector<SPRCandidate>
     return dirty;
 }
 
-int SPROptimizer::optimizeAtRadius(int radius, int known_score, double wall_seconds) {
+int sprOptimizeAtRadius(PhyloTree* tree, int radius, int known_score, double wall_seconds) {
     int cur_score = (known_score > 0) ? known_score : tree->fitchRecomputeWithDiffs();
     int initial_score = cur_score;
     int max_id = tree->fitchMaxNodeId();
@@ -771,9 +753,9 @@ int SPROptimizer::optimizeAtRadius(int radius, int known_score, double wall_seco
     cout << "=== Batch SPR (radius " << radius_str << ") ===" << endl;
     cout << "  Starting score: " << cur_score << endl;
 
-    // Per-radius phase timers (us): enum=DFS+evaluate, sel=sort+conflict,
-    // app=topology, upd=Fitch dirty-recompute + diff-update + reorient.
-    long long t_enum_us = 0, t_select_us = 0, t_apply_us = 0, t_update_us = 0;
+    // Per-radius phase timers in microseconds: enum=DFS+evaluate,
+    // sel=sort+conflict, app=topology, upd=Fitch dirty-recompute + reorient.
+    long long time_enum_micros = 0, time_select_micros = 0, time_apply_micros = 0, time_update_micros = 0;
     long long total_cands = 0, total_applied = 0, total_evaluated = 0;
     long long total_pruned = 0, total_skipped = 0;
     int delta_min = 0, delta_max = 0; long long delta_sum = 0;
@@ -852,9 +834,9 @@ int SPROptimizer::optimizeAtRadius(int radius, int known_score, double wall_seco
 
             bitsetClear();
         }
-        long long this_enum_us = duration_cast<microseconds>(
+        long long this_enum_micros = duration_cast<microseconds>(
             high_resolution_clock::now() - t_enum_start).count();
-        t_enum_us += this_enum_us;
+        time_enum_micros += this_enum_micros;
         total_evaluated += moves_evaluated;
         total_pruned += moves_pruned;
         total_skipped += src_skipped;
@@ -865,7 +847,7 @@ int SPROptimizer::optimizeAtRadius(int radius, int known_score, double wall_seco
             if (moves_pruned > 0) cout << ", " << moves_pruned << " pruned";
             if (src_skipped > 0) cout << ", " << src_skipped << " skip";
             if (wall_break_in_src_loop) cout << " [WALL_BREAK]";
-            cout << ") [enum=" << (this_enum_us / 1000) << "ms]" << endl;
+            cout << ") [enum=" << (this_enum_micros / 1000) << "ms]" << endl;
             break;
         }
         total_cands += candidates.size();
@@ -882,9 +864,9 @@ int SPROptimizer::optimizeAtRadius(int radius, int known_score, double wall_seco
         auto t_select_start = high_resolution_clock::now();
         vector<SPRCandidate> deferred;
         vector<SPRCandidate> selected = selectMoves(candidates, max_id, &deferred);
-        long long this_select_us = duration_cast<microseconds>(
+        long long this_select_micros = duration_cast<microseconds>(
             high_resolution_clock::now() - t_select_start).count();
-        t_select_us += this_select_us;
+        time_select_micros += this_select_micros;
         total_applied += selected.size();
 
         auto t_apply_start = high_resolution_clock::now();
@@ -900,26 +882,26 @@ int SPROptimizer::optimizeAtRadius(int radius, int known_score, double wall_seco
         int expected = 0;
         for (const auto& move : selected)
             { applySPRMove(move.src_parent, move.sibling1, move.sibling2, move.dst, move.dst_parent); expected += move.delta; }
-        long long this_apply_us = duration_cast<microseconds>(
+        long long this_apply_micros = duration_cast<microseconds>(
             high_resolution_clock::now() - t_apply_start).count();
-        t_apply_us += this_apply_us;
+        time_apply_micros += this_apply_micros;
 
         auto t_update_start = high_resolution_clock::now();
         set<PhyloNode*> dirty_set = collectDirtyNodes(selected);
         int new_score = tree->fitchRecomputeScoreDirty(dirty_set);
-        long long this_update_us = duration_cast<microseconds>(
+        long long this_update_micros = duration_cast<microseconds>(
             high_resolution_clock::now() - t_update_start).count();
-        t_update_us += this_update_us;
+        time_update_micros += this_update_micros;
 
         cout << "  Round " << round + 1 << ": " << candidates.size() << " found, "
              << selected.size() << " applied";
         if (!deferred.empty()) cout << " (" << deferred.size() << " deferred)";
         cout << " (exp=" << expected
              << " act=" << (new_score - cur_score) << ") -> " << new_score
-             << " [enum=" << (this_enum_us / 1000)
-             << " sel=" << (this_select_us / 1000)
-             << " app=" << (this_apply_us / 1000)
-             << " upd=" << (this_update_us / 1000) << "ms]" << endl;
+             << " [enum=" << (this_enum_micros / 1000)
+             << " sel=" << (this_select_micros / 1000)
+             << " app=" << (this_apply_micros / 1000)
+             << " upd=" << (this_update_micros / 1000) << "ms]" << endl;
 
         if (new_score > cur_score) {
             undoTopology(saves);
@@ -947,7 +929,7 @@ int SPROptimizer::optimizeAtRadius(int radius, int known_score, double wall_seco
 
         markDirty(selected, dirty_nodes, (int)all_nodes.size());
         has_dirty = true;
-        t_update_us += duration_cast<microseconds>(
+        time_update_micros += duration_cast<microseconds>(
             high_resolution_clock::now() - t_update2_start).count();
 
         if (break_after_round) {
@@ -969,18 +951,18 @@ int SPROptimizer::optimizeAtRadius(int radius, int known_score, double wall_seco
              << " (loop may not have fully converged)" << endl;
     }
 
-    long long t_total_us = t_enum_us + t_select_us + t_apply_us + t_update_us;
-    auto pct = [&](long long us) -> int {
-        return (t_total_us > 0) ? (int)((us * 100) / t_total_us) : 0;
+    long long time_total_micros = time_enum_micros + time_select_micros + time_apply_micros + time_update_micros;
+    auto pct = [&](long long micros) -> int {
+        return (time_total_micros > 0) ? (int)((micros * 100) / time_total_micros) : 0;
     };
     cout << "  Result: " << initial_score << " -> " << cur_score
          << " (delta=" << (initial_score - cur_score) << ")" << endl;
     cout << "  [radius " << radius_str << " phase totals: "
-         << "enum=" << (t_enum_us / 1000) << "ms (" << pct(t_enum_us) << "%) "
-         << "sel=" << (t_select_us / 1000) << "ms (" << pct(t_select_us) << "%) "
-         << "app=" << (t_apply_us / 1000) << "ms (" << pct(t_apply_us) << "%) "
-         << "upd=" << (t_update_us / 1000) << "ms (" << pct(t_update_us) << "%) "
-         << "total=" << (t_total_us / 1000) << "ms]" << endl;
+         << "enum=" << (time_enum_micros / 1000) << "ms (" << pct(time_enum_micros) << "%) "
+         << "sel=" << (time_select_micros / 1000) << "ms (" << pct(time_select_micros) << "%) "
+         << "app=" << (time_apply_micros / 1000) << "ms (" << pct(time_apply_micros) << "%) "
+         << "upd=" << (time_update_micros / 1000) << "ms (" << pct(time_update_micros) << "%) "
+         << "total=" << (time_total_micros / 1000) << "ms]" << endl;
     if (total_cands > 0) {
         cout << "  [radius " << radius_str << " cand stats: "
              << "found=" << total_cands
@@ -996,312 +978,3 @@ int SPROptimizer::optimizeAtRadius(int radius, int known_score, double wall_seco
     return cur_score;
 }
 
-int SPROptimizer::optimizeTree(const SPROptimizeOptions& opts) {
-    int max_passes    = opts.max_passes;
-    int max_radius    = opts.max_radius;
-    int ratchet_iters = opts.ratchet_iters;
-    int ratchet_seed  = opts.ratchet_seed;
-    int ratchet_runs  = opts.ratchet_runs;
-    double wall_seconds = opts.wall_seconds;
-
-    if (ratchet_runs < 1) ratchet_runs = 1;
-    setActiveSPRTree(tree);
-
-    auto t0 = high_resolution_clock::now();
-    int initial_score = tree->fitchRunForSPR();
-    auto t1 = high_resolution_clock::now();
-
-    cout << "Fitch: score=" << initial_score
-         << " (max_passes=" << max_passes
-         << ", max_radius=" << max_radius
-         << ", init=" << duration_cast<milliseconds>(t1-t0).count() << "ms)" << endl;
-
-    int tracked_score = initial_score;
-    int max_id = tree->fitchMaxNodeId();
-
-    orientTreeToRoot(tree, max_id);
-    SPRDeltaExact::precomputeDepths(tree);
-
-    auto optimizer_total_start = high_resolution_clock::now();
-    auto optimizer_total_elapsed = [&]() {
-        return duration_cast<milliseconds>(
-            high_resolution_clock::now() - optimizer_total_start).count() / 1000.0;
-    };
-    auto wall_exceeded = [&]() {
-        return wall_seconds > 0.0 && optimizer_total_elapsed() > wall_seconds;
-    };
-    auto main_remaining = [&]() -> double {
-        if (wall_seconds <= 0.0) return 0.0;
-        double remaining_seconds = wall_seconds - optimizer_total_elapsed();
-        return (remaining_seconds < 0.5) ? 0.5 : remaining_seconds;
-    };
-
-    // Main pass loop: radius-escalating SPR with strict improvement.
-    for (int pass = 0; pass < max_passes; pass++) {
-        if (wall_exceeded()) break;
-        int start = tracked_score;
-        int consecutive_empty = 0;
-        int cur = start;
-
-        for (int r = 1; ; r *= 2) {
-            r = min(r, max_radius);
-
-            int after = optimizeAtRadius(r, cur, main_remaining());
-
-            if (after >= cur) {
-                consecutive_empty++;
-                if (consecutive_empty >= RADIUS_STALL_LIMIT && r < max_radius) {
-                    cout << "  " << consecutive_empty << " consecutive radii with no improvement, skipping higher" << endl;
-                    break;
-                }
-            } else {
-                consecutive_empty = 0;
-                cur = after;
-            }
-
-            if (r == max_radius) break;
-            if (wall_exceeded()) break;
-        }
-
-        int end = cur;
-        tracked_score = end;
-        double improvement = (start > 0) ? (double)(start - end) / start : 0.0;
-        cout << "Pass " << pass + 1 << ": " << start << " -> " << end
-             << " (delta=" << (start - end)
-             << ", improvement=" << fixed << setprecision(4) << (improvement * 100) << "%)" << endl;
-
-        if (end >= start) break;
-    }
-
-    // Optional parsimony ratchet (Nixon 1999) phase.
-    if (ratchet_iters > 0 && !wall_exceeded()) {
-        cout << "\n=== Ratchet phase (" << ratchet_iters << " iters"
-             << (ratchet_runs > 1 ? " x " + std::to_string(ratchet_runs) + " runs" : "")
-             << ", seed=" << ratchet_seed << ") ===" << endl;
-        int pre_ratchet = tracked_score;
-
-        std::vector<int> orig_freq;
-        tree->fitchSnapshotPatternFreq(orig_freq);
-        int nptn = (int)orig_freq.size();
-
-        vector<PhyloNode*> all_nodes_for_save = collectAllNodes(tree, max_id);
-        auto saveAll = [&](vector<NeighborSave>& out) {
-            out.clear();
-            out.reserve(all_nodes_for_save.size() * 3);
-            for (PhyloNode* n : all_nodes_for_save) saveTopology(n, out);
-        };
-
-        vector<NeighborSave> pre_ratchet_topology;
-        saveAll(pre_ratchet_topology);
-        std::vector<nuc_one_hot> pre_ratchet_major = tree->fitchSaveNodeMajor();
-        PhyloTree::FitchAuxSnapshot pre_ratchet_aux = tree->fitchSaveAux();
-
-        // Lazy-allocate overall_best_* (only used when ratchet_runs > 1).
-        vector<NeighborSave> overall_best_topology;
-        std::vector<nuc_one_hot> overall_best_major;
-        PhyloTree::FitchAuxSnapshot overall_best_aux;
-        int overall_best_score = tracked_score;
-        if (ratchet_runs > 1) {
-            overall_best_topology = pre_ratchet_topology;
-            overall_best_major = pre_ratchet_major;
-            overall_best_aux = pre_ratchet_aux;
-        }
-
-        for (int run = 0; run < ratchet_runs; run++) {
-            if (ratchet_runs > 1 && run > 0) {
-                cout << "-- Run " << (run + 1) << "/" << ratchet_runs << " --" << endl;
-                undoTopology(pre_ratchet_topology);
-                tree->fitchRestoreNodeMajor(pre_ratchet_major);
-                tree->fitchRestoreAux(pre_ratchet_aux);
-                orientTreeToRoot(tree, max_id);
-                SPRDeltaExact::precomputeDepths(tree);
-                tracked_score = pre_ratchet;
-            }
-
-            vector<NeighborSave> best_saves;
-            saveAll(best_saves);
-            int best_score = tracked_score;
-
-            std::mt19937 rng((unsigned)(ratchet_seed + run * 101));
-
-            bool tree_at_best = true;
-
-            for (int it = 0; it < ratchet_iters; it++) {
-                if (wall_exceeded()) {
-                    cout << "Ratchet stopping at iter " << it
-                         << ": optimizer wall cap (" << wall_seconds << "s) reached" << endl;
-                    break;
-                }
-                int reweighted = 0;
-                for (int ptn = 0; ptn < nptn; ptn++) {
-                    if ((rng() & RATCHET_REWEIGHT_DENOM_MASK) == 0u) {
-                        tree->fitchScalePatternFreq(ptn, RATCHET_REWEIGHT_FACTOR);
-                        reweighted++;
-                    }
-                }
-
-                auto remaining_budget = [&]() -> double {
-                    if (wall_seconds <= 0.0) return 0.0;
-                    double remaining_seconds = wall_seconds - optimizer_total_elapsed();
-                    return (remaining_seconds < 0.5) ? 0.5 : remaining_seconds;
-                };
-
-                int weighted_score = tree->fitchRecomputeWithDiffs();
-                orientTreeToRoot(tree, max_id);
-                SPRDeltaExact::precomputeDepths(tree);
-                bool capped = false;
-                for (int r = 1; ; r *= 2) {
-                    r = min(r, max_radius);
-                    int after = optimizeAtRadius(r, weighted_score, remaining_budget());
-                    if (after < weighted_score) weighted_score = after;
-                    if (r == max_radius) break;
-                    if (wall_exceeded()) { capped = true; break; }
-                }
-
-                tree->fitchRestorePatternFreq(orig_freq);
-                int unweighted_score = tree->fitchRecomputeWithDiffs();
-                orientTreeToRoot(tree, max_id);
-                SPRDeltaExact::precomputeDepths(tree);
-
-                for (int r = 1; ; r *= 2) {
-                    r = min(r, max_radius);
-                    int after = optimizeAtRadius(r, unweighted_score, remaining_budget());
-                    if (after < unweighted_score) unweighted_score = after;
-                    if (r == max_radius) break;
-                    if (wall_exceeded()) { capped = true; break; }
-                }
-
-                cout << "Ratchet " << (it + 1) << ": reweighted=" << reweighted
-                    << " unweighted=" << unweighted_score
-                    << " best=" << best_score
-                    << (capped ? " [CAPPED]" : "") << endl;
-
-                int delta = unweighted_score - best_score;
-                bool accept;
-                if (delta < 0) {
-                    accept = true;
-                } else if (delta == 0) {
-                    accept = ((int)(rng() % 100u) < RATCHET_ZERO_ACCEPT_PCT);
-                } else {
-                    double prob = std::exp(-(double)delta * RATCHET_INV_TEMPERATURE);
-                    double draw = (double)rng() / (double)std::mt19937::max();
-                    accept = (draw < prob);
-                }
-
-                if (delta < 0) {
-                    best_score = unweighted_score;
-                    saveAll(best_saves);
-                    tracked_score = unweighted_score;
-                    tree_at_best = true;
-                } else if (accept) {
-                    tracked_score = unweighted_score;
-                    tree_at_best = false;
-                } else {
-                    undoTopology(best_saves);
-                    tree->fitchRecomputeWithDiffs();
-                    orientTreeToRoot(tree, max_id);
-                    SPRDeltaExact::precomputeDepths(tree);
-                    tracked_score = best_score;
-                    tree_at_best = true;
-                }
-            }
-            if (!tree_at_best) {
-                undoTopology(best_saves);
-                tree->fitchRecomputeWithDiffs();
-                orientTreeToRoot(tree, max_id);
-                SPRDeltaExact::precomputeDepths(tree);
-            }
-            if (ratchet_runs > 1) {
-                cout << "Run " << (run + 1) << " result: " << pre_ratchet
-                    << " -> " << best_score << endl;
-            } else {
-                cout << "Ratchet phase: " << pre_ratchet << " -> " << best_score
-                    << " (total delta=" << (pre_ratchet - best_score) << ")" << endl;
-            }
-            tracked_score = best_score;
-
-            if (best_score < overall_best_score) {
-                overall_best_score = best_score;
-                saveAll(overall_best_topology);
-                overall_best_major = tree->fitchSaveNodeMajor();
-                overall_best_aux = tree->fitchSaveAux();
-            }
-        }  // end runs loop
-
-        if (ratchet_runs > 1) {
-            undoTopology(overall_best_topology);
-            tree->fitchRestoreNodeMajor(overall_best_major);
-            tree->fitchRestoreAux(overall_best_aux);
-            orientTreeToRoot(tree, max_id);
-            SPRDeltaExact::precomputeDepths(tree);
-            tracked_score = overall_best_score;
-            cout << "Ratchet best across " << ratchet_runs << " runs: "
-                << pre_ratchet << " -> " << overall_best_score
-                << " (delta=" << (pre_ratchet - overall_best_score) << ")" << endl;
-        }
-    }
-
-    if (opts.tbr_iters > 0 && !wall_exceeded()) {
-        cout << "\n=== TBR phase (iters=" << opts.tbr_iters
-             << ", tbr_max_radius=" << opts.tbr_max_radius
-             << ", interleaved with SPR) ===" << endl;
-        // Alternation: one best TBR move, then SPR-converge, repeat.
-        for (int it = 0; it < opts.tbr_iters; it++) {
-            if (wall_exceeded()) break;
-            int pre_iter = tracked_score;
-
-            double tbr_remaining = (wall_seconds > 0.0)
-                ? std::max(0.5, wall_seconds - optimizer_total_elapsed()) : 0.0;
-            int after_tbr = optimizeTBRAtRadius(tree, opts.tbr_max_radius,
-                                                 tracked_score, tbr_remaining,
-                                                 /*max_rounds=*/1);
-            if (after_tbr >= pre_iter) {
-                cout << "  TBR phase converged at " << pre_iter
-                     << " (no improving TBR move past SPR-local optimum)" << endl;
-                break;
-            }
-            tracked_score = after_tbr;
-
-            orientTreeToRoot(tree, max_id);
-            SPRDeltaExact::precomputeDepths(tree);
-
-            auto spr_remaining = [&]() -> double {
-                if (wall_seconds <= 0.0) return 0.0;
-                double remaining_seconds = wall_seconds - optimizer_total_elapsed();
-                return (remaining_seconds < 0.5) ? 0.5 : remaining_seconds;
-            };
-            const int kInterleaveSPRPasses = 10;
-            for (int pass = 0; pass < kInterleaveSPRPasses; pass++) {
-                if (wall_exceeded()) break;
-                int spr_pre = tracked_score;
-                int consecutive_empty = 0;
-                int cur = spr_pre;
-                for (int r = 1; ; r *= 2) {
-                    r = std::min(r, max_radius);
-                    int after = optimizeAtRadius(r, cur, spr_remaining());
-                    if (after >= cur) {
-                        consecutive_empty++;
-                        if (consecutive_empty >= RADIUS_STALL_LIMIT && r < max_radius)
-                            break;
-                    } else {
-                        consecutive_empty = 0;
-                        cur = after;
-                    }
-                    if (r == max_radius) break;
-                    if (wall_exceeded()) break;
-                }
-                tracked_score = cur;
-                if (cur >= spr_pre) break;
-            }
-            cout << "  TBR+SPR iter " << (it + 1) << ": " << pre_iter
-                 << " -> " << tracked_score << " (delta=" << (pre_iter - tracked_score)
-                 << ")" << endl;
-        }
-    }
-
-    cout << "\nSPR complete: " << initial_score << " -> " << tracked_score
-         << " (total delta=" << (initial_score - tracked_score) << ")" << endl;
-
-    setActiveSPRTree(nullptr);
-    return tracked_score;
-}

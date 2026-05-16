@@ -7,10 +7,7 @@
 #include "iqtree.h"
 #include "mutation.h"
 #include "placement.h"
-#include "sproptimize.h"
-extern int runSPRUnitTests(PhyloTree* tree);
-extern int runSPRDeltaTests(PhyloTree* tree);
-extern int runTBRUnitTests(PhyloTree* tree);
+#include "optimizer.h"
 #include <queue>
 #include <set>
 
@@ -58,8 +55,8 @@ int readInitialAlignment(ifstream &in_file_stream, char *out_file_name, int num_
 int readVCFFile(IQTree *tree, Alignment*& alignment, Params &params) {
 	char* vcf_file = params.aln_file ? params.aln_file : params.user_file;
 
-	if (params.num_existing_sequences + params.num_missing_sequences <= MAX_SEQUENCE) {
-		alignment = new Alignment(vcf_file, params.sequence_type, params.intype, params.num_existing_sequences);
+	if (params.pp_num_existing + params.pp_num_missing <= MAX_SEQUENCE) {
+		alignment = new Alignment(vcf_file, params.sequence_type, params.intype, params.pp_num_existing);
 		tree->setAlignment(alignment);
 		tree->aln = alignment;
 		vector<int> rotatedColumnPermutation = alignment->findRotatedColumnPermutation();
@@ -75,7 +72,7 @@ int readVCFFile(IQTree *tree, Alignment*& alignment, Params &params) {
 
 	// Read first 12 lines and create tree alignment
 	int totalColumn = readInitialAlignment(in, "temp.vcf", VCF_HEADER_LINES) - 1; // Read header lines and write to temp.vcf
-	alignment = new Alignment("temp.vcf", params.sequence_type, params.intype, params.num_existing_sequences);
+	alignment = new Alignment("temp.vcf", params.sequence_type, params.intype, params.pp_num_existing);
 	alignment->ungroupSitePattern();
 	std::remove("temp.vcf");
 	tree->setAlignment(alignment);
@@ -86,7 +83,7 @@ int readVCFFile(IQTree *tree, Alignment*& alignment, Params &params) {
 
 	while (true) {
 		int numProcessedColumn = (alignment)->readPartialVCF(in, params.sequence_type, rotatedColumnPermutation, 
-			params.num_existing_sequences, totalColumn, BATCH_SIZE);
+			params.pp_num_existing, totalColumn, BATCH_SIZE);
 		if (numProcessedColumn == 0)
 			break;
 		tree->clearAllPartialLH();
@@ -105,7 +102,7 @@ void placeNewSamplesOntoExistingTree(Params &params) {
 	IQTree *tree = new IQTree;
 	bool is_rooted = false;
 
-	tree->readTree(params.mutation_tree_file, is_rooted);
+	tree->readTree(params.pp_tree_file, is_rooted);
 
 	int sequence_length = readVCFFile(tree, alignment, params) + 1;
 
@@ -116,7 +113,7 @@ void placeNewSamplesOntoExistingTree(Params &params) {
 	cout << "Tree parsimony after init mutations: " << tree->computeParsimonyScoreMutation() << '\n';
 
 	cout << "\n========== Starting placement core ==========\n";
-	int num_sequences = min((int)alignment->missing_sample_mutations.size(), params.num_missing_sequences);
+	int num_sequences = min((int)alignment->missing_sample_mutations.size(), params.pp_num_missing);
 
 	auto start_time = getCPUTime();
 	for (int i = 0; i < num_sequences; ++i) {
@@ -151,51 +148,21 @@ void placeNewSamplesOntoExistingTree(Params &params) {
 	int placement_score = tree->computeParsimony();
 	cout << "Placement parsimony score (Fitch): " << placement_score << "\n";
 
-	if (params.test_delta) {
-		cout << "\n========== Running SPRDeltaExact Debug Tests ==========\n";
-		tree->initializeAllPartialPars();
-		int failures = runSPRDeltaTests(tree);
-		if (failures > 0) {
-			cerr << "\n[ERROR] " << failures << " delta test(s) FAILED" << endl;
-		}
-		cout << "========== SPRDeltaExact Debug Tests Complete ==========\n\n";
-
-		cout << "\n========== Running TBR Unit Tests ==========\n";
-		int tbr_failures = runTBRUnitTests(tree);
-		if (tbr_failures > 0) {
-			cerr << "\n[ERROR] " << tbr_failures << " TBR test(s) FAILED" << endl;
-		}
-		cout << "========== TBR Unit Tests Complete ==========\n\n";
-	} else if (params.spr_test) {
-		cout << "\n========== Running SPR Unit Tests ==========\n";
-		tree->initializeAllPartialPars();
-		int failures = runSPRUnitTests(tree);
-		if (failures > 0) {
-			cerr << "\n[ERROR] " << failures << " test(s) FAILED" << endl;
-		}
-		cout << "========== SPR Unit Tests Complete ==========\n\n";
-
-		cout << "\n========== Running TBR Unit Tests ==========\n";
-		int tbr_failures = runTBRUnitTests(tree);
-		if (tbr_failures > 0) {
-			cerr << "\n[ERROR] " << tbr_failures << " TBR test(s) FAILED" << endl;
-		}
-		cout << "========== TBR Unit Tests Complete ==========\n\n";
-	} else if (params.spr_optimize) {
-		cout << "\n========== Starting post-placement SPR optimization ==========\n";
+	if (params.pp_optimize) {
+		cout << "\n========== Starting post-placement optimization ==========\n";
 		auto spr_start_time = getCPUTime();
 		auto spr_wall_start = std::chrono::high_resolution_clock::now();
 
-		SPROptimizer optimizer(tree);
-		SPROptimizeOptions opts;
-		opts.max_passes    = params.spr_max_passes;
-		opts.max_radius    = params.spr_max_radius;
-		opts.ratchet_iters = params.spr_ratchet_iterations;
-		opts.ratchet_seed  = params.spr_ratchet_seed;
-		opts.ratchet_runs  = params.spr_ratchet_runs;
-		opts.wall_seconds  = params.spr_wall_seconds;
-		opts.tbr_iters      = params.spr_tbr_iters;
-		opts.tbr_max_radius = params.tbr_max_radius;
+		PlacementOptimizer optimizer(tree);
+		PlacementOptimizeOptions opts;
+		opts.max_passes     = params.pp_max_passes;
+		opts.max_radius     = params.pp_max_radius;
+		opts.wall_seconds   = params.pp_wall_seconds;
+		opts.ratchet_iters  = params.pp_ratchet_iters;
+		opts.ratchet_seed   = params.pp_ratchet_seed;
+		opts.ratchet_runs   = params.pp_ratchet_runs;
+		opts.tbr_iters      = params.pp_tbr_iters;
+		opts.tbr_max_radius = params.pp_tbr_max_radius;
 		int best_score = optimizer.optimizeTree(opts);
 
 		double wall_secs = std::chrono::duration<double>(
@@ -214,38 +181,3 @@ void placeNewSamplesOntoExistingTree(Params &params) {
 	delete tree;
 }
 
-void checkCorectTree(char *origin_tree_file, char *new_tree_file) {
-	cout << "================= Start checking correct tree ================\n";
-	IQTree *origin_tree = new IQTree;
-	bool origin_tree_is_rooted = false;
-	origin_tree->readTree(origin_tree_file, origin_tree_is_rooted);
-
-	IQTree *new_tree = new IQTree;
-	bool new_tree_is_rooted = false;
-	new_tree->readTree(new_tree_file, new_tree_is_rooted);
-
-	vector<string> origin_tree_leaves_name;
-	origin_tree->getLeavesName(origin_tree_leaves_name);
-
-	new_tree->assignRoot(origin_tree_leaves_name[0]);
-	sort(origin_tree_leaves_name.begin(), origin_tree_leaves_name.end());
-	new_tree->initNodeData(origin_tree_leaves_name);
-
-	if (new_tree->compareTree(origin_tree)) {
-		cout << "Finish checking correct tree: Correct tree detected\n";
-	}
-	else {
-		cout << "Finish checking correct tree: Wrong tree detected\n";
-	}
-
-	delete origin_tree;
-	delete new_tree;
-}
-
-void configLeafNames(IQTree *tree, Node *node, Node *dad) {
-	if (node->isLeaf()) {
-		node->id = tree->aln->getSeqID(node->name);
-	}
-	FOR_NEIGHBOR_IT(node, dad, it)
-	configLeafNames(tree, (*it)->node, node);
-}

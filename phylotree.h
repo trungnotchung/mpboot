@@ -249,7 +249,7 @@ struct LeafFreq {
 void precomputeFitchInfo();
 
 // Forward declarations
-class SPROptimizer;
+class PlacementOptimizer;
 
 class LCATable {
 public:
@@ -292,7 +292,7 @@ class PhyloTree : public MTree, public Optimization {
 	friend class PhyloSuperTreePlen;
 	friend class RateGamma;
 	friend class RateKategory;
-	friend class SPROptimizer;  // Needs access to getBitsBlockSize() for exact scoring
+	friend class PlacementOptimizer;
 
 public:
     /**

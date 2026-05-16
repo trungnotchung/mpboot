@@ -402,14 +402,14 @@ sprparsimony.cpp
 test.cpp
 mutation.cpp
 placement.cpp
-sproptimize.cpp
+optimizer.cpp
+spr_phase.cpp
+ratchet_phase.cpp
 onehot_encoding.cpp
 spr_context.cpp
 spr_mutation_ops.cpp
 spr_delta_exact.cpp
-tbr_primitives.cpp
-test_spr_unit.cpp
-test_spr_delta.cpp
+tbr_phase.cpp
 )
 
 ##################################################################

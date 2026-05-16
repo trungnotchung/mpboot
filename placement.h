@@ -7,13 +7,7 @@
 
 const int MAX_SEQUENCE = 100000;
 
-/**
- * Place new samples onto existing tree
- */
+/** Place new VCF samples onto an existing reference tree. */
 void placeNewSamplesOntoExistingTree(Params &params);
 
-/**
- * Check if origin tree doesn't change.
- */
-void checkCorrectTree(char *originTreeFile, char *newTreeFile);
 #endif

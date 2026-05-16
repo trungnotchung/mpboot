@@ -29,7 +29,7 @@ class PhyloNeighbor : public Neighbor
     friend class PhyloTree;
     friend class IQTree;
     friend class PhyloSuperTree;
-    friend class SPROptimizer;  // Needs access to partial_pars for exact scoring
+    friend class PlacementOptimizer;  // Needs access to partial_pars for exact scoring
 
 public:
     friend class TinaTree;
