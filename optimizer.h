@@ -4,6 +4,7 @@
 #include <vector>
 
 class PhyloTree;
+struct BenchmarkStats;
 
 struct PlacementOptimizeOptions {
     int    max_passes     = 10;    // Max SPR passes (0 = unlimited).
@@ -26,9 +27,11 @@ public:
      * Runs the main radius-escalating SPR pass loop, then optional parsimony
      * ratchet (Nixon 1999) and TBR phases.
      * @param opts Configuration.
+     * @param bench_stats Optional benchmark stats to track phase timing.
      * @return Final parsimony score.
      */
-    int optimizeTree(const PlacementOptimizeOptions& opts = PlacementOptimizeOptions());
+    int optimizeTree(const PlacementOptimizeOptions& opts = PlacementOptimizeOptions(),
+                     BenchmarkStats* bench_stats = nullptr);
 
     /**
      * Run one radius pass.

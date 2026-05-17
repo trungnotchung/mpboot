@@ -344,6 +344,7 @@ add_subdirectory(model)
 add_executable(mpboot
 alignment.cpp
 alignmentpairwise.cpp
+benchmark_stats.cpp
 circularnetwork.cpp
 eigendecomposition.cpp
 greedy.cpp

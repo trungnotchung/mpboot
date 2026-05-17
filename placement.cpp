@@ -8,6 +8,7 @@
 #include "mutation.h"
 #include "placement.h"
 #include "optimizer.h"
+#include "benchmark_stats.h"
 #include <queue>
 #include <set>
 
@@ -96,6 +97,9 @@ int readVCFFile(IQTree *tree, Alignment*& alignment, Params &params) {
 }
 
 void placeNewSamplesOntoExistingTree(Params &params) {
+	BenchmarkStats bench_stats;
+	double pipeline_start = getRealTime();
+
 	cout << "\n========== Start initial data structure ==========\n";
 
 	Alignment *alignment;
@@ -138,6 +142,8 @@ void placeNewSamplesOntoExistingTree(Params &params) {
 		tree->addNewSample(input.best_node, input.best_node_branch, excess_mutations, i, alignment->missing_seq_names[i]);
 	}
 	cout << "\n========== Finished placement core ==========\n";
+	double placement_end = getRealTime();
+	bench_stats.placement_time = placement_end - pipeline_start;
 	cout << "Time: " << fixed << setprecision(3) << (double)(getCPUTime() - start_time) << " seconds\n";
 	cout << "Memory: " << getMemory() << " KB\n";
 	cout << "New tree's parsimony score computed by mutation: " << tree->computeParsimonyScoreMutation() << '\n';
@@ -146,6 +152,7 @@ void placeNewSamplesOntoExistingTree(Params &params) {
 	tree->deleteAllPartialLh();
 
 	int placement_score = tree->computeParsimony();
+	bench_stats.initial_parsimony = placement_score;
 	cout << "Placement parsimony score (Fitch): " << placement_score << "\n";
 
 	if (params.pp_optimize) {
@@ -163,7 +170,7 @@ void placeNewSamplesOntoExistingTree(Params &params) {
 		opts.ratchet_runs   = params.pp_ratchet_runs;
 		opts.tbr_iters      = params.pp_tbr_iters;
 		opts.tbr_max_radius = params.pp_tbr_max_radius;
-		int best_score = optimizer.optimizeTree(opts);
+		int best_score = optimizer.optimizeTree(opts, &bench_stats);
 
 		double wall_secs = std::chrono::duration<double>(
 			std::chrono::high_resolution_clock::now() - spr_wall_start).count();
@@ -175,6 +182,22 @@ void placeNewSamplesOntoExistingTree(Params &params) {
 		cout << "Final parsimony score computed by fitch: " << tree->computeParsimony() << '\n';
 		cout << "========== Finished SPR optimization ==========\n\n";
 	}
+
+	double pipeline_end = getRealTime();
+	bench_stats.total_time = pipeline_end - pipeline_start;
+	bench_stats.peak_memory_mb = BenchmarkStats::getCurrentMemoryMB();
+	bench_stats.final_parsimony = tree->computeParsimony();
+
+	std::string vcf_path = params.aln_file;
+	std::string vcf_dir = ".";
+	size_t last_slash = vcf_path.find_last_of("/\\");
+	if (last_slash != std::string::npos) {
+		vcf_dir = vcf_path.substr(0, last_slash);
+	}
+	std::string benchmark_file = vcf_dir + "/" + params.out_prefix + ".benchmark.json";
+
+	bench_stats.printSummary();
+	bench_stats.writeToJSON(benchmark_file);
 
 	delete alignment;
 	alignment = NULL;

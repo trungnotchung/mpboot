@@ -6,6 +6,7 @@
 #include "tbr_phase.h"
 #include "spr_context.h"
 #include "spr_delta_exact.h"
+#include "benchmark_stats.h"
 
 #include <algorithm>
 #include <chrono>
@@ -28,7 +29,8 @@ int PlacementOptimizer::optimizeAtRadius(int radius, int known_score, double wal
     return sprOptimizeAtRadius(tree, radius, known_score, wall_seconds);
 }
 
-int PlacementOptimizer::optimizeTree(const PlacementOptimizeOptions& opts) {
+int PlacementOptimizer::optimizeTree(const PlacementOptimizeOptions& opts,
+                                      BenchmarkStats* bench_stats) {
     int max_passes      = opts.max_passes;
     int max_radius      = opts.max_radius;
     int ratchet_iters   = opts.ratchet_iters;
@@ -64,6 +66,7 @@ int PlacementOptimizer::optimizeTree(const PlacementOptimizeOptions& opts) {
     };
 
     // SPR phase: radius-escalating passes, strict improvement.
+    auto spr_phase_start = high_resolution_clock::now();
     for (int pass = 0; pass < max_passes; pass++) {
         if (wall_exceeded()) break;
         int start = tracked_score;
@@ -97,17 +100,34 @@ int PlacementOptimizer::optimizeTree(const PlacementOptimizeOptions& opts) {
              << (improvement * 100) << "%)" << endl;
         if (end >= start) break;
     }
+    auto spr_phase_end = high_resolution_clock::now();
+    if (bench_stats) {
+        bench_stats->spr_phase_a_time = duration_cast<milliseconds>(
+            spr_phase_end - spr_phase_start).count() / 1000.0;
+    }
 
     // Ratchet phase (Nixon 1999) — disabled when ratchet_iters == 0.
     if (ratchet_iters > 0 && !wall_exceeded()) {
+        auto ratchet_phase_start = high_resolution_clock::now();
         tracked_score = runRatchetPhase(this, tree, opts, tracked_score, max_id,
                                          optimizer_total_start);
+        auto ratchet_phase_end = high_resolution_clock::now();
+        if (bench_stats) {
+            bench_stats->ratchet_phase_b_time = duration_cast<milliseconds>(
+                ratchet_phase_end - ratchet_phase_start).count() / 1000.0;
+        }
     }
 
     // TBR phase — disabled when tbr_iters == 0.
     if (opts.tbr_iters > 0 && !wall_exceeded()) {
+        auto tbr_phase_start = high_resolution_clock::now();
         tracked_score = runTBRPhase(this, tree, opts, tracked_score, max_id,
                                      optimizer_total_start);
+        auto tbr_phase_end = high_resolution_clock::now();
+        if (bench_stats) {
+            bench_stats->tbr_phase_c_time = duration_cast<milliseconds>(
+                tbr_phase_end - tbr_phase_start).count() / 1000.0;
+        }
     }
 
     cout << "\nPlacement optimize complete: " << initial_score << " -> " << tracked_score
