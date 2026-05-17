@@ -17,7 +17,7 @@
 using namespace std;
 using namespace std::chrono;
 
-static const int MAX_ROUNDS_PER_RADIUS = 100;
+static const int MAX_ROUNDS_PER_RADIUS = 20;
 
 namespace {
 struct OptimizerScratch {
