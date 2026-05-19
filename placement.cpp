@@ -155,13 +155,6 @@ void placeNewSamplesOntoExistingTree(Params &params) {
 	bench_stats.initial_parsimony = placement_score;
 	cout << "Placement parsimony score (Fitch): " << placement_score << "\n";
 
-	std::string vcf_path = params.aln_file;
-	std::string vcf_dir = ".";
-	size_t last_slash = vcf_path.find_last_of("/\\");
-	if (last_slash != std::string::npos) {
-		vcf_dir = vcf_path.substr(0, last_slash);
-	}
-
 	if (params.pp_optimize) {
 		cout << "\n========== Starting post-placement optimization ==========\n";
 		auto spr_start_time = getCPUTime();
@@ -190,7 +183,8 @@ void placeNewSamplesOntoExistingTree(Params &params) {
 		cout << "========== Finished SPR optimization ==========\n\n";
 	}
 
-	std::string tree_file = vcf_dir + "/" + params.out_prefix + ".treefile";
+	std::string tree_file = params.out_prefix;
+	tree_file += ".treefile";
 	tree->printTree(tree_file.c_str(), WT_TAXON_ID | WT_SORT_TAXA);
 	cout << "Final tree written to: " << tree_file << '\n';
 
@@ -199,7 +193,8 @@ void placeNewSamplesOntoExistingTree(Params &params) {
 	bench_stats.peak_memory_mb = BenchmarkStats::getCurrentMemoryMB();
 	bench_stats.final_parsimony = tree->computeParsimony();
 
-	std::string benchmark_file = vcf_dir + "/" + params.out_prefix + ".benchmark.json";
+	std::string benchmark_file = params.out_prefix;
+	benchmark_file += ".benchmark.json";
 
 	bench_stats.printSummary();
 	bench_stats.writeToJSON(benchmark_file);
