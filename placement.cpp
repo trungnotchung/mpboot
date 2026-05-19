@@ -185,7 +185,7 @@ void placeNewSamplesOntoExistingTree(Params &params) {
 
 	std::string tree_file = params.out_prefix;
 	tree_file += ".treefile";
-	tree->printTree(tree_file.c_str(), WT_TAXON_ID | WT_SORT_TAXA);
+	tree->printTree(tree_file.c_str(), WT_SORT_TAXA);
 	cout << "Final tree written to: " << tree_file << '\n';
 
 	double pipeline_end = getRealTime();
