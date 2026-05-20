@@ -8,6 +8,7 @@
 #include "mutation.h"
 #include "placement.h"
 #include "optimizer.h"
+#include <chrono>
 #include "benchmark_stats.h"
 #include <queue>
 #include <set>
