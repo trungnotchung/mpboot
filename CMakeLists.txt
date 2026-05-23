@@ -29,7 +29,7 @@
 #
 
 
-cmake_minimum_required(VERSION 2.8)
+cmake_minimum_required(VERSION 3.5...3.31)
 
 project(mpboot)
 add_definitions(-DIQ_TREE)
@@ -324,7 +324,7 @@ configure_file (
 # add the binary tree to the search path for include files
 # so that we will find iqtree_config.h
 include_directories("${PROJECT_BINARY_DIR}")
-include_directories("${PROJECT_BINARY_DIR}/zlib-1.2.7")
+include_directories("${PROJECT_BINARY_DIR}/zlib-1.3.1")
 
 
 ##################################################################
@@ -334,7 +334,7 @@ add_subdirectory(pllrepo/src)
 add_subdirectory(ncl)
 add_subdirectory(whtest)
 add_subdirectory(sprng)
-add_subdirectory(zlib-1.2.7)
+add_subdirectory(zlib-1.3.1)
 add_subdirectory(vectorclass)
 add_subdirectory(model)
 
