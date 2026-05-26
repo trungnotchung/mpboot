@@ -32,3 +32,6 @@ test_*
 
 # Ignore all markdown files
 *.md
+
+.cache/
+*.json

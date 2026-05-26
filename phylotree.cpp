@@ -6080,6 +6080,9 @@ void PhyloTree::fitchBuildPatternToSites() {
     }
 }
 
+/**
+ * Pre-order helper for fitchComputeDiffs
+ */
 static void fillFitchDiffsRecursive(PhyloNode* node, PhyloNode* parent,
                                      PhyloTree* tree,
                                      std::vector<std::vector<int>>& fitch_diffs) {
@@ -6100,6 +6103,9 @@ static void fillFitchDiffsRecursive(PhyloNode* node, PhyloNode* parent,
     }
 }
 
+/**
+ * Rebuilds fitch_diffs for every node from scratch
+ */
 void PhyloTree::fitchComputeDiffs() {
     fitch_diffs.resize(fitch_num_nodes);
 
@@ -6167,6 +6173,10 @@ void PhyloTree::fitchUpdateDiffsDirty(const std::set<PhyloNode*>& dirty_nodes) {
     }
 }
 
+/**
+ * Post-order Fitch merge. Reads leaf states from aln->at(ptn)[node->id]
+ * @return Subtree score: children's score + this node's penalty.
+ */
 int PhyloTree::fitchBottomUp(PhyloNode* node, PhyloNode* parent) {
     int idx = fitchGetIdx(node);
     nuc_one_hot* my_major = fitchMajorAt(idx);
@@ -6289,6 +6299,14 @@ void PhyloTree::fitchTopDown(PhyloNode* node, PhyloNode* parent,
     }
 }
 
+/**
+ * BFS-discovers all reachable nodes, repairs broken IDs (placement negatives,
+ * leaf/internal collisions), and builds the sparse->dense node-id map
+ * @param tree              Tree to index.
+ * @param fitch_max_node_id Output: largest node->id after repair.
+ * @param fitch_num_nodes   Output: count of reachable nodes.
+ * @param fitch_node_index  Output: node->id -> dense index; -1 = unused.
+ */
 static void fitchAssignNodeIndices(PhyloTree* tree,
                                     int& fitch_max_node_id,
                                     int& fitch_num_nodes,
@@ -6418,6 +6436,10 @@ int PhyloTree::fitchRun() {
     return total_score;
 }
 
+/**
+ * Cheaper variant of fitchRun for SPR: bottom-up + diffs only, no top-down
+ * @return Total parsimony score (subtree + root-edge penalty).
+ */
 int PhyloTree::fitchRunForSPR() {
     assert(root != nullptr);
     assert(root->isLeaf());
@@ -6448,7 +6470,7 @@ int PhyloTree::fitchRunForSPR() {
         root_major[ptn] = (nuc_one_hot)(dna_state_map[state] & 0xF);
     }
 
-    int st_score = fitchBottomUp(root_neighbor, r);
+    int subtree_score = fitchBottomUp(root_neighbor, r);
 
     int root_edge_score = 0;
     int rn_idx = fitchGetIdx(root_neighbor);
@@ -6459,7 +6481,7 @@ int PhyloTree::fitchRunForSPR() {
         }
     }
 
-    int total_score = st_score + root_edge_score;
+    int total_score = subtree_score + root_edge_score;
 
     fitchComputeDiffs();
 
@@ -6495,6 +6517,10 @@ int PhyloTree::fitchCountMutations() const {
     return total;
 }
 
+/**
+ * Same Fitch merge as fitchBottomUp but skips alignment access.
+ * @return Subtree score: children's score + this node's penalty.
+ */
 int PhyloTree::fitchLocalBottomUp(PhyloNode* node, PhyloNode* parent) {
     int idx = fitchGetIdx(node);
     nuc_one_hot* my_major = fitchMajorAt(idx);

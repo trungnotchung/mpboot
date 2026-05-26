@@ -799,7 +799,7 @@ void parseArg(int argc, char *argv[], Params &params) {
     params.pp_ratchet_seed    = 42;     // RNG seed for ratchet pattern reweighting.
     params.pp_ratchet_runs    = 1;      // Best-of-K independent ratchet runs.
     params.pp_tbr_iters       = 0;      // TBR rounds (0 = disabled).
-    params.pp_tbr_max_radius  = 5;      // BFS depth (Dung's thesis default).
+    params.pp_tbr_max_radius  = 5;      // BFS depth.
     params.test_site_pars = false;
     params.auto_vectorize = false;
     params.sort_alignment = true;

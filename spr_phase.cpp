@@ -109,8 +109,6 @@ private:
     const nuc_one_hot* src_parent_states;
     const nuc_one_hot* grandparent_states;
 
-    PhyloNode* grandparent_sibling;
-    const nuc_one_hot* grandparent_sibling_states;
     vector<PathStep> src_to_root;
 
     mutable int base_bitset_size;  // entries in s_scratch.affected_list at end of setupBaseBitset
@@ -132,9 +130,6 @@ SPRSourceState::SPRSourceState(PhyloTree* tree, PhyloNode* src, PhyloNode* src_p
     sibling_states = tree->fitchMajorArrayFor(sibling);
     src_parent_states = tree->fitchMajorArrayFor(src_parent);
     grandparent_states = tree->fitchMajorArrayFor(grandparent);
-
-    grandparent_sibling = findOtherChild(grandparent, getParent(grandparent), src_parent);
-    grandparent_sibling_states = grandparent_sibling ? tree->fitchMajorArrayFor(grandparent_sibling) : nullptr;
 
     {
         PhyloNode* prev = src_parent;
@@ -193,6 +188,7 @@ int SPRSourceState::evaluate(PhyloNode* dst, PhyloNode* dst_parent) const {
 }
 
 // ========== CASE A: dst in sibling's subtree ==========
+// src_parent moves into sibling's subtree, between dst and dst_parent.
 int SPRSourceState::evalCaseA(PhyloNode* dst, PhyloNode* dst_parent) const {
     s_scratch.scratch_path.clear();
     auto& scratch_path = s_scratch.scratch_path;
@@ -202,16 +198,12 @@ int SPRSourceState::evalCaseA(PhyloNode* dst, PhyloNode* dst_parent) const {
         while (cur && cur != src_parent) {
             PhyloNode* cur_parent = getParent(cur);
             PhyloNode* other = findOtherChild(cur, cur_parent, prev);
-            const nuc_one_hot* other_states = other
-                ? tree->fitchMajorArrayFor(other)
-                : tree->fitchMajorArrayFor(cur);
-            scratch_path.push_back({cur, other_states, tree->fitchMajorArrayFor(cur)});
+            scratch_path.push_back({cur, tree->fitchMajorArrayFor(other), tree->fitchMajorArrayFor(cur)});
             prev = cur;
             cur = cur_parent;
         }
     }
 
-    // Layer dst-specific diffs on top of the persistent base bitset.
     bitsetAddDiffs(tree->fitchDiffsFor(dst));
     for (const auto& step : scratch_path) bitsetAddDiffs(tree->fitchDiffsFor(step.node));
 
@@ -223,19 +215,23 @@ int SPRSourceState::evalCaseA(PhyloNode* dst, PhyloNode* dst_parent) const {
         nuc_one_hot src_fitch = src_states[ptn], sibling_fitch = sibling_states[ptn];
         nuc_one_hot dst_fitch = dst_states[ptn], src_parent_fitch = src_parent_states[ptn];
 
+        // src_parent penalty: src's mate goes sibling -> dst.
         score += (((src_fitch & dst_fitch) ? 0 : 1) - ((src_fitch & sibling_fitch) ? 0 : 1)) * freq;
 
+        // propagate dst-side change up to sibling.
         nuc_one_hot old_fitch = dst_fitch;
         nuc_one_hot new_fitch = fitchMerge(src_fitch, dst_fitch);
         propagatePath(scratch_path, ptn, freq, old_fitch, new_fitch, score);
 
+        // sibling's effective state at grandparent's slot (cascade result, or unchanged).
         nuc_one_hot new_sibling_fitch = (!scratch_path.empty() && old_fitch != new_fitch)
             ? new_fitch : sibling_fitch;
 
+        // grandparent merge + propagate above.
         if (grandparent->isLeaf()) {
             score += rootEdgeDelta(grandparent_states[ptn], src_parent_fitch, new_sibling_fitch) * freq;
         } else {
-            nuc_one_hot grandparent_sibling_fitch = grandparent_sibling_states ? grandparent_sibling_states[ptn] : NUC_N;
+            nuc_one_hot grandparent_sibling_fitch = src_to_root[0].sibling_states[ptn];
             nuc_one_hot new_grandparent_fitch;
             score += penaltyDelta(src_parent_fitch, new_sibling_fitch, grandparent_sibling_fitch, new_grandparent_fitch) * freq;
 
@@ -251,6 +247,7 @@ int SPRSourceState::evalCaseA(PhyloNode* dst, PhyloNode* dst_parent) const {
 }
 
 // ========== CASE B1: dst == lca ==========
+// src_parent moves UP and reattaches as a direct child of lca.
 int SPRSourceState::evalCaseB1(PhyloNode* dst) const {
     PhyloNode* lca = dst;
 
@@ -260,6 +257,7 @@ int SPRSourceState::evalCaseB1(PhyloNode* dst) const {
         src_path_len = i + 1;
     }
 
+    // src_branch = lca's src-side child (where new src_parent will attach).
     PhyloNode* src_branch = (src_path_len == 0)
         ? src_parent : src_to_root[src_path_len - 1].node;
     const nuc_one_hot* src_branch_states = tree->fitchMajorArrayFor(src_branch);
@@ -269,7 +267,6 @@ int SPRSourceState::evalCaseB1(PhyloNode* dst) const {
     const nuc_one_hot* lca_sibling_states = lca_sibling ? tree->fitchMajorArrayFor(lca_sibling) : nullptr;
     const nuc_one_hot* lca_states = tree->fitchMajorArrayFor(lca);
 
-    // Add dst-specific diffs on top of persistent base bitset
     for (size_t i = 0; i < src_path_len; i++) bitsetAddDiffs(tree->fitchDiffsFor(src_to_root[i].node));
     bitsetAddDiffs(tree->fitchDiffsFor(lca));
 
@@ -281,16 +278,19 @@ int SPRSourceState::evalCaseB1(PhyloNode* dst) const {
         nuc_one_hot src_parent_fitch = src_parent_states[ptn];
         int old_sp_penalty = (src_fitch & sibling_fitch) ? 0 : 1;
 
+        // propagate src-side change (src_parent removed, sibling promotes) up to lca.
         nuc_one_hot src_old = src_parent_fitch, src_new = sibling_fitch;
         propagatePath(src_to_root, 0, src_path_len, ptn, freq, src_old, src_new, score);
 
         nuc_one_hot src_child_old = src_branch_states[ptn];
         nuc_one_hot src_child_new = (src_old != src_new) ? src_new : src_child_old;
 
+        // new src_parent inserted between lca and src_branch.
         score += (((src_fitch & src_child_new) ? 0 : 1) - old_sp_penalty) * freq;
 
         nuc_one_hot new_src_parent_fitch = fitchMerge(src_fitch, src_child_new);
 
+        // lca merge (src_branch -> new_src_parent) + propagate above.
         nuc_one_hot lca_sibling_fitch = lca_sibling_states ? lca_sibling_states[ptn] : NUC_N;
         nuc_one_hot old_lca_fitch = lca_states[ptn];
         nuc_one_hot new_lca_fitch;
@@ -314,6 +314,7 @@ int SPRSourceState::evalCaseB1(PhyloNode* dst) const {
 }
 
 // ========== CASE B2: general ==========
+// src and dst live in different subtrees under lca; both sides cascade to lca.
 int SPRSourceState::evalCaseB2(PhyloNode* dst, PhyloNode* dst_parent, PhyloNode* lca) const {
     size_t src_path_len = 0;
     for (size_t i = 0; i < src_to_root.size(); i++) {
@@ -347,7 +348,6 @@ int SPRSourceState::evalCaseB2(PhyloNode* dst, PhyloNode* dst_parent, PhyloNode*
     const nuc_one_hot* lca_states = tree->fitchMajorArrayFor(lca);
     const nuc_one_hot* dst_states = tree->fitchMajorArrayFor(dst);
 
-    // Layer dst-specific diffs (dst, src→lca path, dst→lca path) on top of base bitset.
     bitsetAddDiffs(tree->fitchDiffsFor(dst));
     for (size_t i = 0; i < src_path_len; i++) bitsetAddDiffs(tree->fitchDiffsFor(src_to_root[i].node));
     for (const auto& step : scratch_path) bitsetAddDiffs(tree->fitchDiffsFor(step.node));
@@ -359,18 +359,23 @@ int SPRSourceState::evalCaseB2(PhyloNode* dst, PhyloNode* dst_parent, PhyloNode*
         nuc_one_hot src_fitch = src_states[ptn], sibling_fitch = sibling_states[ptn];
         nuc_one_hot dst_fitch = dst_states[ptn], src_parent_fitch = src_parent_states[ptn];
 
+        // src_parent penalty: src's mate goes sibling -> dst.
         score += (((src_fitch & dst_fitch) ? 0 : 1) - ((src_fitch & sibling_fitch) ? 0 : 1)) * freq;
 
+        // propagate src-side change (src_parent removed) up to lca.
         nuc_one_hot src_old = src_parent_fitch, src_new = sibling_fitch;
         propagatePath(src_to_root, 0, src_path_len, ptn, freq, src_old, src_new, score);
 
+        // propagate dst-side change (new src_parent inserted) up to lca.
         nuc_one_hot new_src_parent_fitch = fitchMerge(src_fitch, dst_fitch);
         nuc_one_hot dst_old = dst_fitch, dst_new = new_src_parent_fitch;
         propagatePath(scratch_path, ptn, freq, dst_old, dst_new, score);
 
+        // fast path: neither cascade reached lca with a change.
         bool src_changed = (src_old != src_new), dst_changed = (dst_old != dst_new);
         if (!src_changed && !dst_changed) continue;
 
+        // lca merge (both children possibly changed) + propagate above.
         nuc_one_hot old_lca_fitch = lca_states[ptn];
         nuc_one_hot src_child_old_fitch = src_branch_states[ptn];
         nuc_one_hot dst_child_old_fitch = dst_branch_states[ptn];
@@ -486,14 +491,17 @@ static void applySPRMove(PhyloNode* src_parent, PhyloNode* sibling1, PhyloNode* 
     assert(dst != dst_parent);
     assert(dst->findNeighbor(dst_parent) && dst_parent->findNeighbor(dst));
     if (dst_parent == sibling1) {
+        // sibling1<->sibling2; src_parent inserted between dst and sibling1.
         sibling1->updateNeighbor(src_parent, sibling2);  sibling2->updateNeighbor(src_parent, sibling1);
         src_parent->updateNeighbor(sibling1, dst);        src_parent->updateNeighbor(sibling2, dst_parent);
         dst->updateNeighbor(dst_parent, src_parent);      dst_parent->updateNeighbor(dst, src_parent);
     } else if (dst_parent == sibling2) {
+        // sibling1<->sibling2; src_parent inserted between dst and sibling2.
         sibling2->updateNeighbor(src_parent, sibling1);   sibling1->updateNeighbor(src_parent, sibling2);
         src_parent->updateNeighbor(sibling2, dst);         src_parent->updateNeighbor(sibling1, dst_parent);
         dst->updateNeighbor(dst_parent, src_parent);       dst_parent->updateNeighbor(dst, src_parent);
     } else {
+        // sibling1<->sibling2; src_parent inserted between dst and dst_parent.
         sibling1->updateNeighbor(src_parent, sibling2);  sibling2->updateNeighbor(src_parent, sibling1);
         src_parent->updateNeighbor(sibling1, dst);       src_parent->updateNeighbor(sibling2, dst_parent);
         dst->updateNeighbor(dst_parent, src_parent);     dst_parent->updateNeighbor(dst, src_parent);
@@ -880,8 +888,9 @@ int sprOptimizeAtRadius(PhyloTree* tree, int radius, int known_score, double wal
         }
 
         int expected = 0;
-        for (const auto& move : selected)
-            { applySPRMove(move.src_parent, move.sibling1, move.sibling2, move.dst, move.dst_parent); expected += move.delta; }
+        for (const auto& move : selected) {
+            applySPRMove(move.src_parent, move.sibling1, move.sibling2, move.dst, move.dst_parent); expected += move.delta;
+        }
         long long this_apply_micros = duration_cast<microseconds>(
             high_resolution_clock::now() - t_apply_start).count();
         time_apply_micros += this_apply_micros;

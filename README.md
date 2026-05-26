@@ -68,6 +68,62 @@ The compiler will generate two executable files named **mpboot-avx** and **mpboo
 
 
   
+## Placement Optimizer
+MPBoot includes a parsimony-based **placement + post-placement optimization** pipeline.
+
+Given an existing reference tree and a set of new samples (VCF), it:
+1. **Places** the new samples onto the reference tree (online placement using a mutation-annotated tree).
+2. **Optimizes** the placed tree with three phases:
+   - **SPR** — exponential-radius hill-climbing (`r = 1, 2, 4, …, max_radius`) with an O(M̄) sparse delta evaluator, batched move application, and verify-by-recompute rollback.
+   - **Ratchet** *(optional)* — Nixon parsimony ratchet (pattern reweighting ×2 on ~25% of patterns) combined with Metropolis acceptance (`exp(-Δ·β)`, β=2) for escaping local minima.
+   - **TBR** *(optional)* — interleaved TBR rounds (1 TBR + 10 SPR passes) for moves SPR cannot reach.
+
+All three phases share a byte-per-pattern Fitch engine with per-vertex diff vectors and an O(1) LCA table.
+
+### Build
+Same as MPBoot above — no separate target. The placement-optimizer code is compiled into the same `mpboot-avx` (or `mpboot` on SSE) binary.
+
+### Inputs
+| Input | Flag | Format |
+|---|---|---|
+| Reference tree | `-pp_tree <file>` | Newick (`.treefile`) |
+| Reference alignment + new samples | `-s <file>` | VCF |
+
+### Run — placement only
+```
+./mpboot-avx -s <vcf_file> -pp_tree <reference_tree> -pp_on -pp_k <num_new_samples> -pp_n <num_existing_samples>
+```
+Runs placement, does NOT run optimization.
+
+### Run — placement + full optimization (SPR + Ratchet + TBR)
+```
+./mpboot-avx -s <vcf_file> -pp_tree <reference_tree> \
+  -pp_on -pp_k <num_new_samples> -pp_n <num_existing_samples> \
+  -pp_optimize \
+  -pp_max_radius 32 \
+  -pp_ratchet_iters 30 -pp_ratchet_runs 3 -pp_ratchet_seed 42 \
+  -pp_tbr_iter 5 -pp_tbr_max_radius 5 \
+  -pp_wall_seconds 300
+```
+Each phase activates only if its iteration count is nonzero — set `-pp_ratchet_iters 0` or `-pp_tbr_iter 0` to skip a phase.
+
+### Key flags
+| Flag | Default | Purpose |
+|---|---|---|
+| `-pp_on` | off | Enable the placement pipeline |
+| `-pp_tree <file>` | — | Reference Newick tree |
+| `-pp_k <n>` | — | Number of new samples |
+| `-pp_n <n>` | — | Total of existing samples |
+| `-pp_optimize` | off | Enable post-placement optimization |
+| `-pp_max_radius <r>` | 32 | Max SPR radius (`0` = unbounded) |
+| `-pp_wall_seconds <s>` | 0 | Wall-clock cap for the whole optimization (`<=0` = no cap) — checked at pass / round / DFS-inner levels |
+| `-pp_ratchet_iters <n>` | 0 | Ratchet iterations per run (`0` = disabled) |
+| `-pp_ratchet_runs <K>` | 1 | Independent ratchet restarts; the best-of-K tree is kept |
+| `-pp_ratchet_seed <s>` | 42 | RNG seed for pattern reweighting |
+| `-pp_tbr_iter <n>` | 0 | Outer TBR rounds (`0` = disabled) |
+| `-pp_tbr_max_radius <r>` | 5 | BFS depth from the bisection scar when searching reconnection edges |
+
+  
 ## MPBoot-MPI
 ### Downloading source code
 You can clone the source code from GitHub with:

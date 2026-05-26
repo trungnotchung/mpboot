@@ -148,10 +148,14 @@ int runRatchetPhase(PlacementOptimizer* optimizer,
             int delta = unweighted_score - best_score;
             bool accept;
             if (delta < 0) {
+                // improvement: always accept (greedy half).
                 accept = true;
             } else if (delta == 0) {
+                // plateau: 50/50 coin.
                 accept = ((int)(rng() % 100u) < RATCHET_ZERO_ACCEPT_PCT);
             } else {
+                // worse: accept with exp(-delta * beta). delta=1 ~13.5%, delta=2 ~1.8%,
+                // delta>=3 effectively never. Lets the chain forget tiny mistakes.
                 double prob = std::exp(-(double)delta * RATCHET_INV_TEMPERATURE);
                 double draw = (double)rng() / (double)std::mt19937::max();
                 accept = (draw < prob);
