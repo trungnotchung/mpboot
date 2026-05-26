@@ -66,6 +66,7 @@ PhyloNode::PhyloNode(int aid, const char *aname) : Node(aid, aname) {
 
 void PhyloNode::init() {
 	missingIndex = -1;
+	dfs_index = -1;  // Will be assigned during mutation state reassignment
 }
 
 
@@ -83,4 +84,18 @@ bool PhyloNode::checkMissingNode() {
 
 int PhyloNode::getMissingIndex() {
     return missingIndex;
+}
+
+void PhyloNode::buildMutationPositionMap() {
+    mutations_by_position.clear();
+
+    FOR_NEIGHBOR_IT(this, nullptr, it) {
+        PhyloNeighbor* edge = (PhyloNeighbor*)(*it);
+
+        for (auto& mut : edge->mutations) {
+            if (!mut.is_masked()) {
+                mutations_by_position[mut.position].push_back(&mut);
+            }
+        }
+    }
 }

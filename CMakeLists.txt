@@ -29,7 +29,7 @@
 #
 
 
-cmake_minimum_required(VERSION 2.8)
+cmake_minimum_required(VERSION 3.5...3.31)
 
 project(mpboot)
 add_definitions(-DIQ_TREE)
@@ -324,7 +324,7 @@ configure_file (
 # add the binary tree to the search path for include files
 # so that we will find iqtree_config.h
 include_directories("${PROJECT_BINARY_DIR}")
-include_directories("${PROJECT_BINARY_DIR}/zlib-1.2.7")
+include_directories("${PROJECT_BINARY_DIR}/zlib-1.3.1")
 
 
 ##################################################################
@@ -334,7 +334,7 @@ add_subdirectory(pllrepo/src)
 add_subdirectory(ncl)
 add_subdirectory(whtest)
 add_subdirectory(sprng)
-add_subdirectory(zlib-1.2.7)
+add_subdirectory(zlib-1.3.1)
 add_subdirectory(vectorclass)
 add_subdirectory(model)
 
@@ -344,6 +344,7 @@ add_subdirectory(model)
 add_executable(mpboot
 alignment.cpp
 alignmentpairwise.cpp
+benchmark_stats.cpp
 circularnetwork.cpp
 eigendecomposition.cpp
 greedy.cpp
@@ -402,6 +403,14 @@ sprparsimony.cpp
 test.cpp
 mutation.cpp
 placement.cpp
+optimizer.cpp
+spr_phase.cpp
+ratchet_phase.cpp
+onehot_encoding.cpp
+spr_context.cpp
+spr_mutation_ops.cpp
+spr_delta_exact.cpp
+tbr_phase.cpp
 )
 
 ##################################################################
@@ -430,10 +439,11 @@ if (IQTREE_FLAGS MATCHES "omp")
 	endif()
 endif()
 
-target_link_libraries(mpboot pll ncl whtest zlibstatic sprng vectorclass model ${PLATFORM_LIB} ${THREAD_LIB})	
+target_link_libraries(mpboot pll ncl whtest zlibstatic sprng vectorclass model ${PLATFORM_LIB} ${THREAD_LIB})
+
 
 ##################################################################
-# setup the executable name 
+# setup the executable name
 ##################################################################
 set_target_properties(mpboot PROPERTIES OUTPUT_NAME "mpboot${EXE_SUFFIX}")
 

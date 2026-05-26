@@ -552,12 +552,10 @@ void get2RandNumb(const int size, int &first, int &second) {
 
 void parseArg(int argc, char *argv[], Params &params) {
     int cnt;
-	params.num_existing_sequences = INT_MAX;
-	params.num_missing_sequences = 0;
-	params.mutation_tree_file = NULL;
-	params.ppon = false;
-	params.pp_verify_preserved_tree = false;
-	params.original_tree_file = NULL;
+	params.pp_num_existing = INT_MAX;
+	params.pp_num_missing = 0;
+	params.pp_tree_file = NULL;
+	params.pp_on = false;
     verbose_mode = VB_MIN;
     params.tree_gen = NONE;
     params.user_file = NULL;
@@ -793,6 +791,15 @@ void parseArg(int argc, char *argv[], Params &params) {
     params.spr_parsimony = true;// Diep: Revert for UFBoot-MP release
     params.spr_mintrav = 1; // same as PLL
     params.spr_maxtrav = 6; // PLL default is 20
+    params.pp_optimize        = false;  // Post-placement optimization (SPR + ratchet + TBR).
+    params.pp_max_passes      = 10;     // Max SPR passes (stops early on convergence).
+    params.pp_max_radius      = 32;     // Max SPR radius (0 = unbounded).
+    params.pp_wall_seconds    = 0.0;    // Wall-clock cap (<= 0 = no cap).
+    params.pp_ratchet_iters   = 0;      // Parsimony ratchet iterations (0 = disabled).
+    params.pp_ratchet_seed    = 42;     // RNG seed for ratchet pattern reweighting.
+    params.pp_ratchet_runs    = 1;      // Best-of-K independent ratchet runs.
+    params.pp_tbr_iters       = 0;      // TBR rounds (0 = disabled).
+    params.pp_tbr_max_radius  = 5;      // BFS depth.
     params.test_site_pars = false;
     params.auto_vectorize = false;
     params.sort_alignment = true;
@@ -859,36 +866,25 @@ void parseArg(int argc, char *argv[], Params &params) {
             }
 			if (strcmp(argv[cnt], "-pp_on") == 0)
 			{
-				params.ppon = true;
-				continue;
-			}
-			if (strcmp(argv[cnt], "-pp_origin") == 0)
-			{
-				cnt++;
-				params.original_tree_file = argv[cnt];
+				params.pp_on = true;
 				continue;
 			}
 			if (strcmp(argv[cnt], "-pp_n") == 0)
 			{
 				cnt++;
-				params.num_existing_sequences = convert_int(argv[cnt]);
+				params.pp_num_existing = convert_int(argv[cnt]);
 				continue;
 			}
 			if (strcmp(argv[cnt], "-pp_k") == 0)
 			{
 				cnt++;
-				params.num_missing_sequences = convert_int(argv[cnt]);
+				params.pp_num_missing = convert_int(argv[cnt]);
 				continue;
 			}
 			if (strcmp(argv[cnt], "-pp_tree") == 0)
 			{
 				cnt++;
-				params.mutation_tree_file = argv[cnt];
-				continue;
-			}
-			if (strcmp(argv[cnt], "-pp_test_optimize") == 0)
-			{
-				params.pp_verify_preserved_tree = true;
+				params.pp_tree_file = argv[cnt];
 				continue;
 			}
 			if (strcmp(argv[cnt], "-ho") == 0 || strcmp(argv[cnt], "-?") == 0) {
@@ -2434,6 +2430,66 @@ void parseArg(int argc, char *argv[], Params &params) {
                     throw "Use " + string(argv[cnt]) + " <maximal SPR radius>";
             	params.spr_maxtrav = convert_int(argv[cnt]);
             	params.sprDist = params.spr_maxtrav; // Diep: hopefully this speed the pllMakeParsimonyTreeFast...
+            	continue;
+            }
+			if(strcmp(argv[cnt], "-pp_optimize") == 0){
+            	params.pp_optimize = true;
+            	continue;
+            }
+			if(strcmp(argv[cnt], "-pp_max_passes") == 0){
+            	cnt++;
+                if (cnt >= argc)
+                    throw "Use -pp_max_passes <number>";
+            	params.pp_max_passes = convert_int(argv[cnt]);
+            	continue;
+            }
+			if(strcmp(argv[cnt], "-pp_max_radius") == 0){
+            	cnt++;
+                if (cnt >= argc)
+                    throw "Use -pp_max_radius <number> (0=unbounded)";
+            	params.pp_max_radius = convert_int(argv[cnt]);
+            	continue;
+            }
+			if(strcmp(argv[cnt], "-pp_wall_seconds") == 0){
+            	cnt++;
+                if (cnt >= argc)
+                    throw "Use -pp_wall_seconds <seconds, <=0 disables>";
+            	params.pp_wall_seconds = convert_double(argv[cnt]);
+            	continue;
+            }
+			if(strcmp(argv[cnt], "-pp_ratchet_iter") == 0){
+            	cnt++;
+                if (cnt >= argc)
+                    throw "Use -pp_ratchet_iter <number>";
+            	params.pp_ratchet_iters = convert_int(argv[cnt]);
+            	continue;
+            }
+			if(strcmp(argv[cnt], "-pp_ratchet_seed") == 0){
+            	cnt++;
+                if (cnt >= argc)
+                    throw "Use -pp_ratchet_seed <seed>";
+            	params.pp_ratchet_seed = convert_int(argv[cnt]);
+            	continue;
+            }
+			if(strcmp(argv[cnt], "-pp_ratchet_runs") == 0){
+            	cnt++;
+                if (cnt >= argc)
+                    throw "Use -pp_ratchet_runs <K>";
+            	params.pp_ratchet_runs = convert_int(argv[cnt]);
+            	continue;
+            }
+			if(strcmp(argv[cnt], "-pp_tbr_iter") == 0){
+            	cnt++;
+                if (cnt >= argc)
+                    throw "Use -pp_tbr_iter <rounds, 0 disables>";
+            	params.pp_tbr_iters = convert_int(argv[cnt]);
+            	continue;
+            }
+			if(strcmp(argv[cnt], "-pp_tbr_max_radius") == 0){
+            	cnt++;
+                if (cnt >= argc)
+                    throw "Use -pp_tbr_max_radius <BFS depth from bisection scar>";
+            	params.pp_tbr_max_radius = convert_int(argv[cnt]);
             	continue;
             }
 			if(strcmp(argv[cnt], "-sitepars") == 0){

@@ -580,7 +580,7 @@ void MTree::parseFile(istream &infile, char &ch, Node* &root, double &branch_len
 {
     Node *node;
     int maxlen = 10000;
-    char seqname[10000];
+    static char seqname[10000];
     int seqlen;
     double brlen;
     branch_len = -1.0;

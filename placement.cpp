@@ -7,6 +7,11 @@
 #include "iqtree.h"
 #include "mutation.h"
 #include "placement.h"
+#include "optimizer.h"
+#include <chrono>
+#include "benchmark_stats.h"
+#include <queue>
+#include <set>
 
 const int VCF_HEADER_LINES = 12;  // Number of header lines in VCF file
 const int BATCH_SIZE = 8;         // Number of columns to process in each batch
@@ -50,8 +55,10 @@ int readInitialAlignment(ifstream &in_file_stream, char *out_file_name, int num_
 }
 
 int readVCFFile(IQTree *tree, Alignment*& alignment, Params &params) {
-	if (params.num_existing_sequences + params.num_missing_sequences <= MAX_SEQUENCE) {
-		alignment = new Alignment(params.aln_file, params.sequence_type, params.intype, params.num_existing_sequences);
+	char* vcf_file = params.aln_file ? params.aln_file : params.user_file;
+
+	if (params.pp_num_existing + params.pp_num_missing <= MAX_SEQUENCE) {
+		alignment = new Alignment(vcf_file, params.sequence_type, params.intype, params.pp_num_existing);
 		tree->setAlignment(alignment);
 		tree->aln = alignment;
 		vector<int> rotatedColumnPermutation = alignment->findRotatedColumnPermutation();
@@ -61,13 +68,13 @@ int readVCFFile(IQTree *tree, Alignment*& alignment, Params &params) {
 
 	ifstream in;
 	in.exceptions(ios::failbit | ios::badbit);
-	in.open(params.aln_file);
+	in.open(vcf_file);
 	string line;
 	in.exceptions(ios::badbit);
 
 	// Read first 12 lines and create tree alignment
 	int totalColumn = readInitialAlignment(in, "temp.vcf", VCF_HEADER_LINES) - 1; // Read header lines and write to temp.vcf
-	alignment = new Alignment("temp.vcf", params.sequence_type, params.intype, params.num_existing_sequences);
+	alignment = new Alignment("temp.vcf", params.sequence_type, params.intype, params.pp_num_existing);
 	alignment->ungroupSitePattern();
 	std::remove("temp.vcf");
 	tree->setAlignment(alignment);
@@ -78,7 +85,7 @@ int readVCFFile(IQTree *tree, Alignment*& alignment, Params &params) {
 
 	while (true) {
 		int numProcessedColumn = (alignment)->readPartialVCF(in, params.sequence_type, rotatedColumnPermutation, 
-			params.num_existing_sequences, totalColumn, BATCH_SIZE);
+			params.pp_num_existing, totalColumn, BATCH_SIZE);
 		if (numProcessedColumn == 0)
 			break;
 		tree->clearAllPartialLH();
@@ -91,23 +98,27 @@ int readVCFFile(IQTree *tree, Alignment*& alignment, Params &params) {
 }
 
 void placeNewSamplesOntoExistingTree(Params &params) {
+	BenchmarkStats bench_stats;
+	double pipeline_start = getRealTime();
+
 	cout << "\n========== Start initial data structure ==========\n";
 
 	Alignment *alignment;
 	IQTree *tree = new IQTree;
 	bool is_rooted = false;
 
-	tree->readTree(params.mutation_tree_file, is_rooted);
+	tree->readTree(params.pp_tree_file, is_rooted);
+
 	int sequence_length = readVCFFile(tree, alignment, params) + 1;
-	// Init new tree's memory
+
 	tree->allocateMutationMemory(sequence_length);
-	// free memory
 	delete[] tree->root_states;
 	tree->add_row = false;
+
 	cout << "Tree parsimony after init mutations: " << tree->computeParsimonyScoreMutation() << '\n';
 
 	cout << "\n========== Starting placement core ==========\n";
-	int num_sequences = min((int)alignment->missing_sample_mutations.size(), params.num_missing_sequences);
+	int num_sequences = min((int)alignment->missing_sample_mutations.size(), params.pp_num_missing);
 
 	auto start_time = getCPUTime();
 	for (int i = 0; i < num_sequences; ++i) {
@@ -132,47 +143,65 @@ void placeNewSamplesOntoExistingTree(Params &params) {
 		tree->addNewSample(input.best_node, input.best_node_branch, excess_mutations, i, alignment->missing_seq_names[i]);
 	}
 	cout << "\n========== Finished placement core ==========\n";
+	double placement_end = getRealTime();
+	bench_stats.placement_time = placement_end - pipeline_start;
 	cout << "Time: " << fixed << setprecision(3) << (double)(getCPUTime() - start_time) << " seconds\n";
 	cout << "Memory: " << getMemory() << " KB\n";
 	cout << "New tree's parsimony score computed by mutation: " << tree->computeParsimonyScoreMutation() << '\n';
+
+	alignment->addToAlignmentNewSequences(alignment->missing_seq_names, alignment->missing_sequences);
+	tree->deleteAllPartialLh();
+
+	int placement_score = tree->computeParsimony();
+	bench_stats.initial_parsimony = placement_score;
+	cout << "Placement parsimony score (Fitch): " << placement_score << "\n";
+
+	if (params.pp_optimize) {
+		cout << "\n========== Starting post-placement optimization ==========\n";
+		auto spr_start_time = getCPUTime();
+		auto spr_wall_start = std::chrono::high_resolution_clock::now();
+
+		PlacementOptimizer optimizer(tree);
+		PlacementOptimizeOptions opts;
+		opts.max_passes     = params.pp_max_passes;
+		opts.max_radius     = params.pp_max_radius;
+		opts.wall_seconds   = params.pp_wall_seconds;
+		opts.ratchet_iters  = params.pp_ratchet_iters;
+		opts.ratchet_seed   = params.pp_ratchet_seed;
+		opts.ratchet_runs   = params.pp_ratchet_runs;
+		opts.tbr_iters      = params.pp_tbr_iters;
+		opts.tbr_max_radius = params.pp_tbr_max_radius;
+		int best_score = optimizer.optimizeTree(opts, &bench_stats);
+
+		double wall_secs = std::chrono::duration<double>(
+			std::chrono::high_resolution_clock::now() - spr_wall_start).count();
+		cout << "SPR optimization time: " << fixed << setprecision(3)
+		     << wall_secs << " seconds (wall), "
+		     << (double)(getCPUTime() - spr_start_time) << " seconds (cpu)\n";
+		cout << "Final parsimony score after SPR: " << best_score << '\n';
+		tree->deleteAllPartialLh();
+		cout << "Final parsimony score computed by fitch: " << tree->computeParsimony() << '\n';
+		cout << "========== Finished SPR optimization ==========\n\n";
+	}
+
+	std::string tree_file = params.out_prefix;
+	tree_file += ".treefile";
+	tree->printTree(tree_file.c_str(), WT_SORT_TAXA);
+	cout << "Final tree written to: " << tree_file << '\n';
+
+	double pipeline_end = getRealTime();
+	bench_stats.total_time = pipeline_end - pipeline_start;
+	bench_stats.peak_memory_mb = BenchmarkStats::getCurrentMemoryMB();
+	bench_stats.final_parsimony = tree->computeParsimony();
+
+	std::string benchmark_file = params.out_prefix;
+	benchmark_file += ".benchmark.json";
+
+	bench_stats.printSummary();
+	bench_stats.writeToJSON(benchmark_file);
 
 	delete alignment;
 	alignment = NULL;
 	delete tree;
 }
 
-void checkCorectTree(char *origin_tree_file, char *new_tree_file) {
-	cout << "================= Start checking correct tree ================\n";
-	IQTree *origin_tree = new IQTree;
-	bool origin_tree_is_rooted = false;
-	origin_tree->readTree(origin_tree_file, origin_tree_is_rooted);
-
-	IQTree *new_tree = new IQTree;
-	bool new_tree_is_rooted = false;
-	new_tree->readTree(new_tree_file, new_tree_is_rooted);
-
-	vector<string> origin_tree_leaves_name;
-	origin_tree->getLeavesName(origin_tree_leaves_name);
-
-	new_tree->assignRoot(origin_tree_leaves_name[0]);
-	sort(origin_tree_leaves_name.begin(), origin_tree_leaves_name.end());
-	new_tree->initNodeData(origin_tree_leaves_name);
-
-	if (new_tree->compareTree(origin_tree)) {
-		cout << "Finish checking correct tree: Correct tree detected\n";
-	}
-	else {
-		cout << "Finish checking correct tree: Wrong tree detected\n";
-	}
-
-	delete origin_tree;
-	delete new_tree;
-}
-
-void configLeafNames(IQTree *tree, Node *node, Node *dad) {
-	if (node->isLeaf()) {
-		node->id = tree->aln->getSeqID(node->name);
-	}
-	FOR_NEIGHBOR_IT(node, dad, it)
-	configLeafNames(tree, (*it)->node, node);
-}

@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(claude --version)",
+      "Bash(vm_stat)",
+      "Bash(sysctl vm.swapusage)",
+      "Bash(git *)",
+      "Bash(awk 'NR==999,NR==1306 {print NR\": \"$0}' /Users/phamtrung/Documents/Code/trungnotchung/lab/mpboot/mpboot/sproptimize.cpp)",
+      "Bash(grep -n \"^[a-zA-Z].*{$\\\\|^int optimizeTBR\\\\|^void\\\\|^BisectionState\\\\|^static\" /Users/phamtrung/Documents/Code/trungnotchung/lab/mpboot/mpboot/tbr_primitives.cpp)"
+    ]
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '{\"systemMessage\": \"REMINDER: If you made code changes in this session, update progress/changelog.md with an entry documenting what changed, why, and the result (scores/times before vs after). See Section 7 of CLAUDE.md for the template.\"}'",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  },
+  "enabledPlugins": {
+    "backend@pendle-prompts": false,
+    "common@pendle-prompts": false,
+    "notion@claude-plugins-official": false
+  }
+}

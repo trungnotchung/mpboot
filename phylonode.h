@@ -14,6 +14,7 @@
 
 #include "node.h"
 #include "mutation.h"
+#include "nucleotide_utils.h"
 
 typedef short int UBYTE;
 
@@ -28,6 +29,7 @@ class PhyloNeighbor : public Neighbor
     friend class PhyloTree;
     friend class IQTree;
     friend class PhyloSuperTree;
+    friend class PlacementOptimizer;  // Needs access to partial_pars for exact scoring
 
 public:
     friend class TinaTree;
@@ -188,6 +190,72 @@ public:
     PhyloNode *dad;
 
     int missingIndex;
+
+    /**
+     * DFS index for ordering nodes in mutation state reassignment
+     * Used by backward pass (max-heap) and forward pass (min-heap)
+     */
+    int dfs_index;
+
+    // Incremental Mutation Update State Storage
+
+    /**
+     * Current nucleotide state assignment at each position
+     * Key: alignment position
+     * Value: assigned state (one-hot encoded: 1=A, 2=C, 4=G, 8=T)
+     */
+    std::map<int, nuc_one_hot> assigned_states;
+
+    /**
+     * Major allele set from Fitch bottom-up pass at each position
+     * Key: alignment position
+     * Value: major allele set (bit-packed, multiple bits set if ambiguous)
+     */
+    std::map<int, nuc_one_hot> major_alleles;
+
+    /**
+     * Quick lookup: position → mutations on edges from this node
+     * Used for fast mutation updates during incremental reassignment
+     */
+    std::map<int, std::vector<Mutation*>> mutations_by_position;
+
+    /**
+     * Helper: Get assigned state at a position
+     */
+    nuc_one_hot getStateAt(int position) const {
+        auto it = assigned_states.find(position);
+        return (it != assigned_states.end()) ? it->second : NUC_N;
+    }
+
+    /**
+     * Helper: Set assigned state at a position
+     */
+    void setStateAt(int position, nuc_one_hot state) {
+        assigned_states[position] = state;
+    }
+
+    /**
+     * Helper: Get major allele at a position
+     */
+    nuc_one_hot getMajorAlleleAt(int position) const {
+        auto it = major_alleles.find(position);
+        return (it != major_alleles.end()) ? it->second : NUC_N;
+    }
+
+    /**
+     * Helper: Build mutation position map from edge mutations
+     * Call after mutations are created/updated
+     */
+    void buildMutationPositionMap();
+
+    /**
+     * Helper: Clear incremental state (for cleanup)
+     */
+    void clearIncrementalState() {
+        assigned_states.clear();
+        major_alleles.clear();
+        mutations_by_position.clear();
+    }
 };
 
 /**

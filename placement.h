@@ -5,15 +5,9 @@
 #include "fstream"
 #include "timeutil.h"
 
-const int MAX_SEQUENCE = 20000;
+const int MAX_SEQUENCE = 1e9;
 
-/**
- * Place new samples onto existing tree
- */
+/** Place new VCF samples onto an existing reference tree. */
 void placeNewSamplesOntoExistingTree(Params &params);
 
-/**
- * Check if origin tree doesn't change.
- */
-void checkCorrectTree(char *originTreeFile, char *newTreeFile);
 #endif

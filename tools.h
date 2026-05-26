@@ -411,35 +411,17 @@ extern int NNI_MAX_NR_STEP;
         program parameters, everything is specified here
  */
 struct Params {
-        /**
-         *  Enable placement
-         */
-        bool ppon;
+        /** Enable placement mode (set via -pp_on). */
+        bool pp_on;
 
-        /**
-         *  Number of starting row
-         */
-        int num_existing_sequences;
+        /** Number of existing sequences in the reference tree (set via -pp_n). */
+        int pp_num_existing;
 
-        /**
-         * Number of adding row
-         */
-        int num_missing_sequences;
+        /** Number of new sequences to place onto the tree (set via -pp_k). */
+        int pp_num_missing;
 
-        /**
-         * Tree file name
-         */
-        char *mutation_tree_file;
-
-        /**
-         * Original tree file name
-         */
-        char *original_tree_file;
-
-        /**
-         * Checking correct tree
-         */
-        bool pp_verify_preserved_tree;
+        /** Reference tree file (Newick) for placement (set via -pp_tree). */
+        char *pp_tree_file;
 
 	/**
 	 *  Number of starting parsimony trees
@@ -1552,6 +1534,17 @@ struct Params {
      */
     int spr_mintrav;
     int spr_maxtrav;
+
+    /* Post-placement optimization parameters (all prefixed pp_). */
+    bool   pp_optimize;          // Run SPR + ratchet + TBR after placement.
+    int    pp_max_passes;        // Max SPR passes through the radius escalator.
+    int    pp_max_radius;        // Max SPR search radius (0 = unbounded).
+    double pp_wall_seconds;      // Wall-clock cap in seconds (<= 0 = no cap).
+    int    pp_ratchet_iters;     // Parsimony ratchet iterations (0 = disabled).
+    int    pp_ratchet_seed;      // RNG seed for ratchet pattern reweighting.
+    int    pp_ratchet_runs;      // Best-of-K independent ratchet runs.
+    int    pp_tbr_iters;         // TBR rounds after SPR converges (0 = disabled).
+    int    pp_tbr_max_radius;    // BFS depth from bisection scar.
 
     /*
      * Diep: option for comparing PLL site parsimony and IQTree

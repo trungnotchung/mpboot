@@ -2323,7 +2323,7 @@ int main(int argc, char *argv[])
 	cout.setf(ios::fixed);
 
 	// call the main function
-	if (params.ppon) {
+	if (params.pp_on) {
 		placeNewSamplesOntoExistingTree(params);
 	} else if (params.tree_gen != NONE) {
 		generateRandomTree(params);
